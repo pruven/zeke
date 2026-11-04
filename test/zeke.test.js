@@ -16,6 +16,13 @@ function exec(cwd, command, args, success = true) {
 }
 const git = (cwd, ...args) => exec(cwd, 'git', args);
 const zeke = (cwd, ...args) => exec(cwd, process.execPath, [cli, ...args]);
+
+test('version flags work outside a Git repository and match the package metadata', () => {
+  const expected = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  for (const flag of ['--version', '-v']) {
+    assert.equal(zeke(os.tmpdir(), flag).stdout.trim(), expected);
+  }
+});
 function write(root, file, contents, mode) {
   fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
   fs.writeFileSync(path.join(root, file), contents, { mode });

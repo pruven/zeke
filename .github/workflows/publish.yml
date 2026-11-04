@@ -69,9 +69,7 @@ jobs:
       - name: Set repository metadata for npm provenance
         run: npm pkg set 'repository.type=git' "repository.url=git+https://github.com/${GITHUB_REPOSITORY}.git"
       - name: Publish package
-        # Optional bootstrap token. Leave unset after configuring npm OIDC.
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # Authenticate only through the npm trusted publisher (GitHub OIDC).
         run: |
           VERSION=$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')
           case "$VERSION" in

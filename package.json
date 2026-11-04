@@ -1,6 +1,6 @@
 {
   "name": "@pruven/zeke",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatically copy local environment files into new Git worktrees.",
   "type": "module",
   "bin": { "zeke": "bin/zeke.js" },

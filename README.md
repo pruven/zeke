@@ -12,9 +12,7 @@ Zeke installs a `post-checkout` hook that copies missing, ignored `.env` and `.e
 
 ## Install from this checkout
 
-The package is ready to install locally; it has not been published to npm.
-
-Once published, install from npm with `npm install -g @pruven/zeke`, or add it to your project with `bun add --dev @pruven/zeke`.
+Install from npm with `npm install -g @pruven/zeke`, or add it to your project with `bun add --dev @pruven/zeke`. To install this checkout locally:
 
 ```sh
 cd /path/to/zeke
@@ -39,7 +37,7 @@ Add Zeke to your project's development dependencies and explicitly choose Bun fo
 
 ```sh
 cd /path/to/your-project
-bun add --dev /path/to/zeke/pruven-zeke-0.1.0.tgz
+bun add --dev /path/to/zeke/pruven-zeke-0.1.1.tgz
 bun --bun zeke init
 git worktree add ../my-feature -b my-feature
 ```
@@ -52,7 +50,7 @@ bun /path/to/zeke/bin/zeke.js init
 
 Use `bun --bun zeke sync`, `bun --bun zeke status`, and the other commands the same way. The explicit `--bun` matters because Bun otherwise respects the CLI's Node shebang. See [Bun's shebang documentation](https://bun.sh/guides/install/from-npm-install-to-bun-install#shebang).
 
-For a global Bun install, use `bun add --global /path/to/zeke/pruven-zeke-0.1.0.tgz` and invoke it with `bun "$(command -v zeke)" init` to select Bun explicitly. The shorter `bun --bun zeke` form resolves a project's local executable.
+For a global Bun install, use `bun add --global /path/to/zeke/pruven-zeke-0.1.1.tgz` and invoke it with `bun "$(command -v zeke)" init` to select Bun explicitly. The shorter `bun --bun zeke` form resolves a project's local executable.
 
 Hooks retain the runtime used by `init` or `install`: installing with Bun makes automatic worktree copying use Bun, with no Node dependency. `zeke status` shows the installed runtime and executable. To switch an existing installation to Bun, run `bun --bun zeke install`; reinstall with Node to switch back.
 
@@ -68,6 +66,7 @@ Commit `zeke.config.json` so teammates can share the rules, but keep the actual 
 | `zeke sync --dry-run` | Show what would be copied without writing files |
 | `zeke status` | Show hook installation, runtime, project root, and config |
 | `zeke uninstall` | Restore the previous hook configuration |
+| `zeke --version` / `zeke -v` | Print the installed version (works outside Git repositories) |
 
 Existing worktrees can use `zeke sync`. Ordinary branch switches do not trigger copying. `git worktree add --no-checkout` does not run the checkout hook; run `zeke sync` after checking out files.
 
@@ -142,7 +141,7 @@ The integration tests create disposable real Git repositories and worktrees, exe
 
 For an existing npm package, open its npm settings and add a **GitHub Actions trusted publisher** with your GitHub owner, repository, and workflow filename `publish.yml` (not its full path). Leave the environment field empty and allow direct `npm publish`. The workflow uses GitHub OIDC; no npm secret is needed once this is configured. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 
-If `@pruven/zeke` does not exist yet, bootstrap the first publish by setting the repository's GitHub Actions secret `NPM_TOKEN` to an npm token authorized to create/publish packages in the `@pruven` scope. Alternatively, publish the first version locally with `npm login` and `npm publish --access public`, then use this workflow for subsequent versions. After the package exists, configure its trusted publisher and remove the bootstrap secret. You must have publishing access to the `@pruven` npm scope.
+`@pruven/zeke` already exists on npm. The workflow uses OIDC exclusively, so an `NPM_TOKEN` secret is not used. You must have publishing access to the `@pruven` npm scope to configure its trusted publisher. Ensure **Allow npm publish** is enabled; the default permission for `npm stage publish` alone is insufficient. The first successful OIDC publish validates a new trusted publisher; it must happen within two days of creating the configuration. Expired configurations must be deleted and recreated.
 
 ### Release a version
 
