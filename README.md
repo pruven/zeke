@@ -6,7 +6,7 @@ Zeke installs a `post-checkout` hook that copies missing, ignored `.env` and `.e
 
 ## Requirements
 
-- Node.js 22.20 or newer, available when Git runs hooks.
+- Node.js 22.20+ **or** Bun 1.4.4+, available when Git runs hooks. You only need one runtime.
 - Git with worktree support.
 - Linux or macOS. Windows / Git Bash has not been tested.
 
@@ -31,6 +31,29 @@ Alternatively, run the CLI directly without a global install:
 node /path/to/zeke/bin/zeke.js init
 ```
 
+### Using Bun
+
+Add Zeke to your project's development dependencies and explicitly choose Bun for the CLI:
+
+```sh
+cd /path/to/your-project
+bun add --dev /path/to/zeke/zeke-worktree-0.1.0.tgz
+bun --bun zeke init
+git worktree add ../my-feature -b my-feature
+```
+
+You can also run it directly, without installing the package:
+
+```sh
+bun /path/to/zeke/bin/zeke.js init
+```
+
+Use `bun --bun zeke sync`, `bun --bun zeke status`, and the other commands the same way. The explicit `--bun` matters because Bun otherwise respects the CLI's Node shebang. See [Bun's shebang documentation](https://bun.sh/guides/install/from-npm-install-to-bun-install#shebang).
+
+For a global Bun install, use `bun add --global /path/to/zeke/zeke-worktree-0.1.0.tgz` and invoke it with `bun "$(command -v zeke)" init` to select Bun explicitly. The shorter `bun --bun zeke` form resolves a project's local executable.
+
+Hooks retain the runtime used by `init` or `install`: installing with Bun makes automatic worktree copying use Bun, with no Node dependency. `zeke status` shows the installed runtime and executable. To switch an existing installation to Bun, run `bun --bun zeke install`; reinstall with Node to switch back.
+
 Commit `zeke.config.json` so teammates can share the rules, but keep the actual environment files ignored. Each developer runs `zeke install` once in their local clone. Hook installation is local to that clone and shared by its worktrees.
 
 ## Commands
@@ -41,7 +64,7 @@ Commit `zeke.config.json` so teammates can share the rules, but keep the actual 
 | `zeke install` | Install or refresh the local hook runtime |
 | `zeke sync` | Copy missing files into the current worktree, even without installing hooks |
 | `zeke sync --dry-run` | Show what would be copied without writing files |
-| `zeke status` | Show hook installation, project root, and config |
+| `zeke status` | Show hook installation, runtime, project root, and config |
 | `zeke uninstall` | Restore the previous hook configuration |
 
 Existing worktrees can use `zeke sync`. Ordinary branch switches do not trigger copying. `git worktree add --no-checkout` does not run the checkout hook; run `zeke sync` after checking out files.
@@ -83,7 +106,7 @@ Zeke skips symbolic links, nested Git repositories/submodules, and directories n
 4. Hook dispatchers run the previous hooks with their arguments, stdin, working directory, environment, and exit status preserved.
 5. On an initial `post-checkout` event, identified by a zero old HEAD and the branch-checkout flag, Zeke finds matching ignored source files and copies missing ones using exclusive file creation.
 
-The installed runtime is copied into Git's metadata directory. It does not depend on the original npm package remaining installed or on `node_modules` existing in the new worktree. It records the Node executable used at installation; run `zeke install` again after moving or removing that Node installation.
+The installed runtime is copied into Git's metadata directory. It does not depend on the original package remaining installed or on `node_modules` existing in the new worktree. It records the Node or Bun executable used at installation; reinstall hooks with your chosen runtime after moving or removing that runtime installation.
 
 The hook copies after the previous `post-checkout` hook runs. An automatic copy error prints a message with instructions to retry using `zeke sync`; it does not turn successful Git worktree creation into a failure. An existing hook's failure remains a failure. Manual sync errors return a nonzero exit code.
 
@@ -104,6 +127,8 @@ npm test
 npm run check
 npm pack --dry-run
 ```
+
+Run the integration suite with Bun using `bun run test:bun` (or `bun test`), and package using `bun pm pack`. The same suite runs on both runtimes; Bun also runs an additional test that installs hooks and creates a worktree with Node absent from `PATH`.
 
 The integration tests create disposable real Git repositories and worktrees, exercising automatic copying, existing hooks, stdin and exit status forwarding, config restoration, symlinks, ignore rules, dry runs, and operation without the original package.
 

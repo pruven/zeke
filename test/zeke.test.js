@@ -190,3 +190,38 @@ test('--no-checkout does not run automatic sync; manual sync works after checkou
   zeke(target, 'sync');
   assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=source');
 });
+
+test('installation records the active runtime and refreshes it on reinstall', t => {
+  const f = fixture(t);
+  zeke(f.root, 'install');
+  const statePath = path.join(f.root, '.git/zeke/state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  // Simulate an older installation so reinstall must refresh runtime metadata.
+  delete state.runtime;
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  zeke(f.root, 'install');
+  const status = JSON.parse(zeke(f.root, 'status').stdout);
+  assert.equal(status.runtime.name, process.versions.bun ? 'bun' : 'node');
+  assert.equal(status.runtime.executable, process.execPath);
+  assert.equal(status.runtime.version, process.versions.bun ?? process.versions.node);
+});
+
+test('Bun installs and executes hooks without Node on PATH', { skip: !process.versions.bun }, t => {
+  const f = fixture(t);
+  const tools = path.join(f.temp, 'bun-only-bin');
+  fs.mkdirSync(tools);
+  const gitPath = exec(f.root, '/bin/sh', ['-c', 'command -v git']).stdout.trim();
+  fs.symlinkSync(gitPath, path.join(tools, 'git'));
+  fs.symlinkSync(process.execPath, path.join(tools, 'bun'));
+  const bunEnv = { ...env, PATH: tools };
+  assert.notEqual(spawnSync('node', ['--version'], { env: bunEnv }).status, 0);
+  const installed = spawnSync(process.execPath, [cli, 'init'], { cwd: f.root, env: bunEnv, encoding: 'utf8' });
+  assert.equal(installed.status, 0, installed.stderr);
+  write(f.root, '.env', 'TOKEN=bun-only');
+  const target = path.join(f.temp, 'bun-feature');
+  const created = spawnSync(gitPath, ['worktree', 'add', '-b', 'bun-feature', target], { cwd: f.root, env: bunEnv, encoding: 'utf8' });
+  assert.equal(created.status, 0, created.stderr);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=bun-only');
+  const status = JSON.parse(spawnSync(process.execPath, [cli, 'status'], { cwd: target, env: bunEnv, encoding: 'utf8' }).stdout);
+  assert.equal(status.runtime.name, 'bun');
+});
