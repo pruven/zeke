@@ -1,0 +1,80 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Test Node and Bun
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.20.0'
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - name: Verify package name and release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (pkg.name !== '@pruven/zeke') throw new Error('Expected package name @pruven/zeke');
+          if (process.env.RELEASE_TAG !== `v${pkg.version}`) {
+            throw new Error(`Release tag must be v${pkg.version}`);
+          }
+          if (process.env.RELEASE_PRERELEASE === 'true' && !pkg.version.includes('-')) {
+            throw new Error('A prerelease must have a prerelease package version, such as 0.2.0-beta.1');
+          }
+          JS
+      # There are no dependencies to install or lockfiles to restore.
+      - run: npm run check
+      - run: npm test
+      - run: bun run test:bun
+      - run: npm pack --dry-run
+
+  publish:
+    name: Publish @pruven/zeke
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+      - name: Set repository metadata for npm provenance
+        run: npm pkg set 'repository.type=git' "repository.url=git+https://github.com/${GITHUB_REPOSITORY}.git"
+      - name: Publish package
+        # Optional bootstrap token. Leave unset after configuring npm OIDC.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION=$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')
+          case "$VERSION" in
+            *-*) npm publish --access public --tag next ;;
+            *) npm publish --access public --tag latest ;;
+          esac

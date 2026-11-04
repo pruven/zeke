@@ -14,6 +14,8 @@ Zeke installs a `post-checkout` hook that copies missing, ignored `.env` and `.e
 
 The package is ready to install locally; it has not been published to npm.
 
+Once published, install from npm with `npm install -g @pruven/zeke`, or add it to your project with `bun add --dev @pruven/zeke`.
+
 ```sh
 cd /path/to/zeke
 npm install -g .
@@ -37,7 +39,7 @@ Add Zeke to your project's development dependencies and explicitly choose Bun fo
 
 ```sh
 cd /path/to/your-project
-bun add --dev /path/to/zeke/zeke-worktree-0.1.0.tgz
+bun add --dev /path/to/zeke/pruven-zeke-0.1.0.tgz
 bun --bun zeke init
 git worktree add ../my-feature -b my-feature
 ```
@@ -50,7 +52,7 @@ bun /path/to/zeke/bin/zeke.js init
 
 Use `bun --bun zeke sync`, `bun --bun zeke status`, and the other commands the same way. The explicit `--bun` matters because Bun otherwise respects the CLI's Node shebang. See [Bun's shebang documentation](https://bun.sh/guides/install/from-npm-install-to-bun-install#shebang).
 
-For a global Bun install, use `bun add --global /path/to/zeke/zeke-worktree-0.1.0.tgz` and invoke it with `bun "$(command -v zeke)" init` to select Bun explicitly. The shorter `bun --bun zeke` form resolves a project's local executable.
+For a global Bun install, use `bun add --global /path/to/zeke/pruven-zeke-0.1.0.tgz` and invoke it with `bun "$(command -v zeke)" init` to select Bun explicitly. The shorter `bun --bun zeke` form resolves a project's local executable.
 
 Hooks retain the runtime used by `init` or `install`: installing with Bun makes automatic worktree copying use Bun, with no Node dependency. `zeke status` shows the installed runtime and executable. To switch an existing installation to Bun, run `bun --bun zeke install`; reinstall with Node to switch back.
 
@@ -131,5 +133,25 @@ npm pack --dry-run
 Run the integration suite with Bun using `bun run test:bun` (or `bun test`), and package using `bun pm pack`. The same suite runs on both runtimes; Bun also runs an additional test that installs hooks and creates a worktree with Node absent from `PATH`.
 
 The integration tests create disposable real Git repositories and worktrees, exercising automatic copying, existing hooks, stdin and exit status forwarding, config restoration, symlinks, ignore rules, dry runs, and operation without the original package.
+
+## Publishing to npm
+
+`.github/workflows/publish.yml` publishes the public package `@pruven/zeke` when a GitHub release is **published**. Draft releases do not publish. The CLI command remains `zeke`.
+
+### One-time authentication setup
+
+For an existing npm package, open its npm settings and add a **GitHub Actions trusted publisher** with your GitHub owner, repository, and workflow filename `publish.yml` (not its full path). Leave the environment field empty and allow direct `npm publish`. The workflow uses GitHub OIDC; no npm secret is needed once this is configured. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
+
+If `@pruven/zeke` does not exist yet, bootstrap the first publish by setting the repository's GitHub Actions secret `NPM_TOKEN` to an npm token authorized to create/publish packages in the `@pruven` scope. Alternatively, publish the first version locally with `npm login` and `npm publish --access public`, then use this workflow for subsequent versions. After the package exists, configure its trusted publisher and remove the bootstrap secret. You must have publishing access to the `@pruven` npm scope.
+
+### Release a version
+
+1. Set the desired version in `package.json` and commit/push the changes with the workflow.
+2. Create and publish a GitHub release whose tag is exactly `v` followed by that version, such as `v0.1.0`.
+3. The workflow checks the package name and tag, runs syntax checks and the Node and Bun integration suites, inspects the package, then publishes to npm.
+
+Stable versions publish under npm's `latest` tag. Versions such as `0.2.0-beta.1` publish under `next`; use a matching GitHub prerelease tag such as `v0.2.0-beta.1`. Each npm version can be published only once, so increment the version for every release. A locally published bootstrap version should not be published again by a GitHub release.
+
+The publish job uses Node 24's npm for OIDC support, sets the package's repository metadata from the actual GitHub repository, and requests an identity token only in that job. npm automatically attaches provenance for OIDC publishes from public repositories. No GitHub repository URL is hardcoded.
 
 References: [Git hooks](https://git-scm.com/docs/githooks), [core.hooksPath](https://git-scm.com/docs/git-config#Documentation/git-config.txt-corehooksPath), [Node glob matching](https://nodejs.org/api/path.html#pathmatchesglobpath-pattern).
