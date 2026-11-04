@@ -1,0 +1,11 @@
+{
+  "name": "zeke-worktree",
+  "version": "0.1.0",
+  "description": "Automatically copy local environment files into new Git worktrees.",
+  "type": "module",
+  "bin": { "zeke": "bin/zeke.js" },
+  "files": ["bin", "lib", "README.md", "LICENSE"],
+  "engines": { "node": ">=22.20.0" },
+  "scripts": { "test": "node --test", "check": "node --check bin/zeke.js && node --check lib/zeke.js && node --check lib/hook.js" },
+  "license": "MIT"
+}
