@@ -1,0 +1,15 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "@pruven/zeke",
+      "devDependencies": {
+        "@pruven/zeke": "^0.1.1",
+      },
+    },
+  },
+  "packages": {
+    "@pruven/zeke": ["@pruven/zeke@0.1.1", "", { "bin": { "zeke": "bin/zeke.js" } }, "sha512-C6YVOiz0cLKhBt3DF1EP2bqNta8E83KHedaPsrCZ/wQmEudh6lqj0BnpkW/x32DwtbXYo5djrZR5gNnDWvxp8Q=="],
+  }
+}

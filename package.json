@@ -3,10 +3,25 @@
   "version": "0.1.1",
   "description": "Automatically copy local environment files into new Git worktrees.",
   "type": "module",
-  "bin": { "zeke": "bin/zeke.js" },
+  "bin": {
+    "zeke": "bin/zeke.js"
+  },
   "files": ["bin", "lib", "README.md", "LICENSE"],
-  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
-  "engines": { "node": ">=22.20.0", "bun": ">=1.4.4" },
-  "scripts": { "test": "node --test", "test:bun": "bun test", "check": "node --check bin/zeke.js && node --check lib/zeke.js && node --check lib/hook.js" },
-  "license": "MIT"
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22.20.0",
+    "bun": ">=1.4.4"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:bun": "bun test",
+    "check": "node --check bin/zeke.js && node --check lib/zeke.js && node --check lib/hook.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@pruven/zeke": "^0.1.1"
+  }
 }
