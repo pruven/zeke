@@ -29,7 +29,7 @@ git worktree add ../my-feature -b my-feature
 
 Use `bun --bun zeke` for subsequent commands too. Hooks retain the runtime used during installation, so initializing with Bun makes automatic copying use Bun.
 
-Commit `zeke.config.json` to share rules with teammates, and keep environment files ignored. Each developer runs `zeke install` once in their own clone.
+Commit `zeke.config.json` to share rules with teammates, and keep environment files ignored. Each developer runs `zeke install` for Node or `bun --bun zeke install` for Bun once in their own clone.
 
 ## Commands
 
@@ -81,6 +81,13 @@ Custom `copy` and `exclude` arrays replace their defaults. For example, include 
 
 Zeke forwards Git hooks to your previous hook directory without editing its scripts. Install Zeke after other hook managers have completed setup.
 
-If another tool later changes `core.hooksPath`, `zeke status` reports Zeke as inactive. Restore the Zeke hook path shown by the original installation before running `zeke uninstall`; Zeke refuses to replace a changed setting automatically.
+If another tool later changes `core.hooksPath`, `zeke status` reports Zeke as inactive. Zeke refuses to replace a changed setting automatically. From inside your repository, restore Zeke's hook path (`<git-common-dir>/zeke/hooks`) before uninstalling:
+
+```sh
+git config --local --replace-all core.hooksPath "$(git rev-parse --path-format=absolute --git-common-dir)/zeke/hooks"
+zeke uninstall
+```
+
+For Bun, use `bun --bun zeke status` and `bun --bun zeke uninstall`.
 
 Uninstalling restores the previous hook configuration and removes Zeke's installed runtime. Copied files and `zeke.config.json` remain in place.
