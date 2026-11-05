@@ -43,7 +43,7 @@ jobs:
             throw new Error('A prerelease must have a prerelease package version, such as 0.2.0-beta.1');
           }
           JS
-      # There are no dependencies to install or lockfiles to restore.
+      - run: bun install --frozen-lockfile
       - run: npm run check
       - run: npm test
       - run: bun run test:bun
@@ -66,6 +66,10 @@ jobs:
           node-version: '24'
           registry-url: https://registry.npmjs.org/
           package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - run: bun install --frozen-lockfile
       - name: Set repository metadata for npm provenance
         run: npm pkg set 'repository.type=git' "repository.url=git+https://github.com/${GITHUB_REPOSITORY}.git"
       - name: Publish package

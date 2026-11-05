@@ -3,8 +3,41 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+export interface Config {
+  source: string;
+  copy: string[];
+  exclude: string[];
+}
+
+interface Context {
+  root: string;
+  common: string;
+  directory: string;
+  hooks: string;
+}
+
+interface RuntimeInfo {
+  name: 'node' | 'bun';
+  version: string;
+  executable: string;
+}
+
+export interface InstallationState {
+  version: number;
+  projectRoot: string;
+  previousLocal: string[];
+  previousEffective: string | null;
+  common: string;
+  runtime?: RuntimeInfo;
+}
+
+interface GitOptions {
+  optional?: boolean;
+  input?: string;
+}
+
 const CONFIG = 'zeke.config.json';
-export const defaults = {
+export const defaults: Config = {
   source: 'main-worktree',
   copy: ['**/.env', '**/.env.*'],
   exclude: ['**/.env.example'],
@@ -14,7 +47,9 @@ const hookNames = `applypatch-msg pre-applypatch post-applypatch pre-commit pre-
 
 // Hook environments contain repository-specific variables. Clear these for Git
 // commands aimed at the source checkout, while preserving the user's identity/PATH.
-export function git(args, cwd = process.cwd(), { optional = false, input } = {}) {
+export function git(args: string[], cwd?: string, options?: GitOptions & { optional?: false }): string;
+export function git(args: string[], cwd: string | undefined, options: GitOptions): string | null;
+export function git(args: string[], cwd = process.cwd(), { optional = false, input }: GitOptions = {}): string | null {
   const env = { ...process.env };
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_PREFIX', 'GIT_INTERNAL_SUPER_PREFIX']) delete env[key];
   const result = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env, input, maxBuffer: 32 * 1024 * 1024 });
@@ -26,28 +61,28 @@ export function git(args, cwd = process.cwd(), { optional = false, input } = {})
   return result.stdout;
 }
 
-function context() {
+function context(): Context {
   const root = git(['rev-parse', '--show-toplevel']).trimEnd();
   const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], root).trimEnd();
   return { root, common, directory: path.join(common, 'zeke'), hooks: path.join(common, 'zeke', 'hooks') };
 }
 
-function mainWorktree(root) {
+function mainWorktree(root: string): string {
   const records = git(['worktree', 'list', '--porcelain', '-z'], root).split('\0\0');
   const record = records.find(item => item.startsWith('worktree ') && !item.split('\0').includes('bare'));
   if (!record) throw new Error('No source worktree found.');
   return record.split('\0')[0].slice('worktree '.length);
 }
 
-function readConfig(projectRoot) {
-  let user = {};
+function readConfig(projectRoot: string): Config {
+  let user: unknown = {};
   try { user = JSON.parse(fs.readFileSync(path.join(projectRoot, CONFIG), 'utf8')); }
-  catch (error) { if (error.code !== 'ENOENT') throw new Error(`Cannot read ${CONFIG}: ${error.message}`); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`Cannot read ${CONFIG}: ${(error as Error).message}`); }
   if (!user || Array.isArray(user) || typeof user !== 'object') throw new Error(`${CONFIG} must contain an object.`);
   for (const key of Object.keys(user)) if (!(key in defaults)) throw new Error(`Unknown configuration key: ${key}`);
-  const config = { ...defaults, ...user };
+  const config = { ...defaults, ...user } as Config;
   if (typeof config.source !== 'string' || !config.source) throw new Error('source must be a nonempty path or "main-worktree".');
-  for (const key of ['copy', 'exclude']) {
+  for (const key of ['copy', 'exclude'] as const) {
     if (!Array.isArray(config[key]) || config[key].some(p => typeof p !== 'string' || !p || path.isAbsolute(p) || p.split('/').includes('..') || p.includes('\\'))) {
       throw new Error(`${key} must be an array of relative glob patterns using forward slashes.`);
     }
@@ -55,17 +90,17 @@ function readConfig(projectRoot) {
   return config;
 }
 
-function stateAt(ctx) {
+function stateAt(ctx: Context): InstallationState | null {
   try { return JSON.parse(fs.readFileSync(path.join(ctx.directory, 'state.json'), 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
 }
 
-function effectiveHooks(root) {
+function effectiveHooks(root: string): string | null {
   return git(['config', '--path', '--get', 'core.hooksPath'], root, { optional: true })?.trimEnd() ?? null;
 }
 
-const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
-const runtimeInfo = () => ({
+const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+const runtimeInfo = (): RuntimeInfo => ({
   name: process.versions.bun ? 'bun' : 'node',
   version: process.versions.bun ?? process.versions.node,
   executable: process.execPath,
@@ -81,7 +116,7 @@ export function install() {
   // A worktree-scoped setting can override the shared repository setting.
   const scope = git(['config', '--show-scope', '--get', 'core.hooksPath'], ctx.root, { optional: true });
   if (scope && /^(worktree|command)\s/.test(scope)) throw new Error('A worktree or command-scoped core.hooksPath overrides repository hooks. Remove that override before installing.');
-  const state = existing ?? {
+  const state: InstallationState = existing ?? {
     version: 1, projectRoot,
     previousLocal: git(['config', '--local', '--get-all', 'core.hooksPath'], ctx.root, { optional: true })?.trimEnd().split('\n') ?? [],
     previousEffective: effectiveHooks(ctx.root),
@@ -114,8 +149,8 @@ export function uninstall() {
   console.log('zeke: uninstalled; previous hooks configuration restored. Copied files and project config kept.');
 }
 
-function candidates(source, config, prefix = '') {
-  const files = [];
+function candidates(source: string, config: Config, prefix = ''): string[] {
+  const files: string[] = [];
   for (const entry of fs.readdirSync(path.join(source, prefix), { withFileTypes: true })) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (pruned.has(entry.name) || config.exclude.some(pattern => path.posix.matchesGlob(relative, pattern))) continue;
@@ -128,7 +163,7 @@ function candidates(source, config, prefix = '') {
   return files;
 }
 
-function safeParents(root, relative, dryRun) {
+function safeParents(root: string, relative: string, dryRun: boolean): boolean {
   let directory = root;
   for (const part of relative.split('/').slice(0, -1)) {
     directory = path.join(directory, part);
@@ -136,7 +171,7 @@ function safeParents(root, relative, dryRun) {
       const stat = fs.lstatSync(directory);
       if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
     } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       if (!dryRun) fs.mkdirSync(directory);
     }
   }
@@ -163,11 +198,11 @@ export function sync({ dryRun = false } = {}) {
     if (!ignored.has(relative) || git(['check-ignore', '-q', '--', relative], ctx.root, { optional: true }) === null) { skipped++; continue; }
     const destination = path.join(ctx.root, relative);
     try { fs.lstatSync(destination); skipped++; continue; }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (!safeParents(ctx.root, relative, dryRun)) { skipped++; continue; }
     if (!dryRun) {
       try { fs.copyFileSync(path.join(source, relative), destination, fs.constants.COPYFILE_EXCL); }
-      catch (error) { if (error.code === 'EEXIST') { skipped++; continue; } throw error; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { skipped++; continue; } throw error; }
     }
     copied++;
     console.log(`zeke: ${dryRun ? 'would copy' : 'copied'} ${JSON.stringify(relative)}`);
@@ -176,15 +211,15 @@ export function sync({ dryRun = false } = {}) {
   return { copied, skipped };
 }
 
-export function run(args) {
+export function run(args: string[]): void {
   const [command, ...flags] = args;
   if (command === '--version' || command === '-v') {
     if (flags.length) throw new Error('Unknown option. Run zeke --help.');
-    console.log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+    console.log(JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version);
     return;
   }
   if (!command || command === '--help' || command === '-h' || command === 'help') {
-    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [--dry-run] Copy missing ignored files into this worktree\n  status           Show installation, hook runtime, and source configuration\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git. Run inside a Git worktree.\nFor Bun: bun /path/to/bin/zeke.js install (or bun --bun zeke install with a local package).`);
+    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [--dry-run] Copy missing ignored files into this worktree\n  status           Show installation, hook runtime, and source configuration\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
     return;
   }
   if (flags.some(flag => command !== 'sync' || flag !== '--dry-run')) throw new Error('Unknown option. Run zeke --help.');
@@ -193,7 +228,7 @@ export function run(args) {
       const ctx = context();
       const file = path.join(mainWorktree(ctx.root), CONFIG);
       try { fs.writeFileSync(file, `${JSON.stringify(defaults, null, 2)}\n`, { flag: 'wx' }); }
-      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
       install();
       break;
     }

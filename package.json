@@ -4,9 +4,14 @@
   "description": "Automatically copy local environment files into new Git worktrees.",
   "type": "module",
   "bin": {
-    "zeke": "bin/zeke.js"
+    "zeke": "dist/bin/zeke.js"
   },
-  "files": ["bin", "lib", "README.md", "LICENSE"],
+  "files": [
+    "dist/bin",
+    "dist/lib",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
@@ -19,13 +24,18 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "test": "node --test",
-    "test:bun": "bun test",
-    "check": "node --check bin/zeke.js && node --check lib/zeke.js && node --check lib/hook.js"
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "test:bun": "bun run build && bun test ./dist/test",
+    "check": "tsc --noEmit",
+    "build": "tsc",
+    "prepack": "npm run build",
+    "prepare": "npm run build"
   },
   "license": "MIT",
   "devDependencies": {
     "@pruven/zeke": "^0.1.1",
-    "vitepress": "^1.6.4"
+    "vitepress": "^1.6.4",
+    "typescript": "~5.9.3",
+    "@types/node": "^22.19.0"
   }
 }
