@@ -8,35 +8,35 @@ Zeke installs a Git `post-checkout` hook that copies missing, ignored `.env` and
 
 You need Git with worktree support and either Node.js 22.20+ or Bun 1.4.4+. Zeke supports Linux and macOS; Windows / Git Bash has not been tested.
 
-Install Zeke and initialize it in your project:
+Install Zeke globally, then enable it in your project:
 
 ```sh
 npm install -g @pruven/zeke
 cd /path/to/your-project
-zeke init
+zeke install
 git worktree add ../my-feature -b my-feature
 ```
 
-The new worktree receives your ignored environment files immediately, including nested files such as `apps/api/.env.local`. No dependency installation is needed in the new worktree.
+`zeke install` enables automatic copying and syncs the current worktree in one command. It stores its hook runtime in Git’s metadata directory without adding dependencies or creating a config file in your project. The new worktree receives your ignored environment files immediately, including nested files such as `apps/api/.env.local`. No dependency installation is needed in the new worktree.
 
 ### Using Bun
 
 ```sh
-bun add --dev @pruven/zeke
-bun --bun zeke init
+bun add --global @pruven/zeke
+bun "$(command -v zeke)" install
 git worktree add ../my-feature -b my-feature
 ```
 
-Use `bun --bun zeke` for subsequent commands too. Hooks retain the runtime used during installation, so initializing with Bun makes automatic copying use Bun.
+Use `bun "$(command -v zeke)"` for subsequent commands too (or `bun --bun zeke` with a local package). Hooks retain the runtime used during installation, so initializing with Bun makes automatic copying use Bun.
 
-Commit `zeke.config.json` to share rules with teammates, and keep environment files ignored. Each developer runs `zeke install` for Node or `bun --bun zeke install` for Bun once in their own clone.
+Optionally run `zeke init` to create and commit `zeke.config.json` to share rules with teammates, and keep environment files ignored. Each developer runs `zeke install` for Node or `bun "$(command -v zeke)" install` for Bun once in their own clone.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `zeke init` | Create config if missing and install hooks |
-| `zeke install` | Install or refresh the local hook runtime |
+| `zeke init` | Create config if missing, enable hooks, and sync this worktree |
+| `zeke install` | Enable or refresh hooks and sync this worktree |
 | `zeke sync` | Copy missing files into the current worktree |
 | `zeke sync --dry-run` | Preview copies without writing files |
 | `zeke status` | Show hook installation, runtime, project root, and config |

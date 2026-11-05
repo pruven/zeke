@@ -61,6 +61,43 @@ test('initial checkout copies ignored env files recursively, excluding examples 
   assert.equal(JSON.parse(zeke(target, 'status').stdout).installed, true);
 });
 
+test('install enables hooks and syncs the current worktree without adding project files', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'TOKEN=source');
+  write(f.root, 'apps/api/.env.local', 'TOKEN=nested');
+  const target = f.worktree();
+  const before = git(target, 'status', '--porcelain', '--untracked-files=all').stdout;
+  const result = zeke(target, 'install');
+  assert.match(result.stdout, /enabled/);
+  assert.match(result.stdout, /2 copied/);
+  assert.equal(JSON.parse(zeke(target, 'status').stdout).installed, true);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=source');
+  assert.equal(fs.readFileSync(path.join(target, 'apps/api/.env.local'), 'utf8'), 'TOKEN=nested');
+  for (const root of [f.root, target]) {
+    for (const file of ['zeke.config.json', 'package.json', 'node_modules']) {
+      assert.equal(fs.existsSync(path.join(root, file)), false);
+    }
+  }
+  assert.equal(git(target, 'status', '--porcelain', '--untracked-files=all').stdout, before);
+  write(target, '.env', 'TOKEN=target');
+  fs.unlinkSync(path.join(target, 'apps/api/.env.local'));
+  zeke(target, 'install');
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=target');
+  assert.equal(fs.readFileSync(path.join(target, 'apps/api/.env.local'), 'utf8'), 'TOKEN=nested');
+  const next = f.worktree('next');
+  assert.equal(fs.readFileSync(path.join(next, '.env'), 'utf8'), 'TOKEN=source');
+});
+
+test('init also syncs the current worktree while creating the shared config', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'TOKEN=source');
+  const target = f.worktree();
+  zeke(target, 'init');
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=source');
+  assert.equal(fs.existsSync(path.join(f.root, 'zeke.config.json')), true);
+  assert.equal(JSON.parse(zeke(target, 'status').stdout).installed, true);
+});
+
 test('manual sync, dry run, and repeated calls preserve existing values', t => {
   const f = fixture(t);
   write(f.root, '.env', 'SECRET=source');
@@ -162,6 +199,7 @@ test('config can select another worktree as source', t => {
   write(source, '.env', 'TOKEN=other-worktree');
   write(f.root, 'zeke.config.json', JSON.stringify({ source: '../source' }));
   zeke(f.root, 'install');
+  assert.equal(fs.readFileSync(path.join(f.root, '.env'), 'utf8'), 'TOKEN=other-worktree');
   const target = f.worktree();
   assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=other-worktree');
 });
