@@ -12,56 +12,56 @@ Zeke installs a `post-checkout` hook that copies missing, ignored `.env` and `.e
 
 ## Install from this checkout
 
-Install from npm with `npm install -g @pruven/zeke`, or add it to your project with `bun add --dev @pruven/zeke`. To install this checkout locally:
+Install from npm with `npm install -g @pruven/zeke`. To install this checkout locally:
 
 ```sh
 cd /path/to/zeke
 npm install -g .
 
 cd /path/to/your-project
-zeke init
+zeke install
 git worktree add ../my-feature -b my-feature
 ```
 
-The new worktree receives your ignored environment files immediately, including nested files such as `apps/api/.env.local`. No dependency installation is needed inside the new worktree.
+`zeke install` enables automatic copying and syncs the current worktree in one command. It stores its hook runtime in Git’s metadata directory without adding dependencies or creating a config file in your project. The new worktree receives your ignored environment files immediately, including nested files such as `apps/api/.env.local`. No dependency installation is needed inside the new worktree.
 
 Alternatively, run the CLI directly without a global install:
 
 ```sh
-node /path/to/zeke/bin/zeke.js init
+node /path/to/zeke/bin/zeke.js install
 ```
 
 ### Using Bun
 
-Add Zeke to your project's development dependencies and explicitly choose Bun for the CLI:
+Install Zeke globally and explicitly choose Bun for the CLI:
 
 ```sh
 cd /path/to/your-project
-bun add --dev /path/to/zeke/pruven-zeke-0.1.1.tgz
-bun --bun zeke init
+bun add --global @pruven/zeke
+bun "$(command -v zeke)" install
 git worktree add ../my-feature -b my-feature
 ```
 
 You can also run it directly, without installing the package:
 
 ```sh
-bun /path/to/zeke/bin/zeke.js init
+bun /path/to/zeke/bin/zeke.js install
 ```
 
-Use `bun --bun zeke sync`, `bun --bun zeke status`, and the other commands the same way. The explicit `--bun` matters because Bun otherwise respects the CLI's Node shebang. See [Bun's shebang documentation](https://bun.sh/guides/install/from-npm-install-to-bun-install#shebang).
+Use `bun "$(command -v zeke)" sync`, `bun "$(command -v zeke)" status`, and the other commands the same way. For a local package, use `bun --bun zeke`. The explicit `--bun` matters because Bun otherwise respects the CLI's Node shebang. See [Bun's shebang documentation](https://bun.sh/guides/install/from-npm-install-to-bun-install#shebang).
 
-For a global Bun install, use `bun add --global /path/to/zeke/pruven-zeke-0.1.1.tgz` and invoke it with `bun "$(command -v zeke)" init` to select Bun explicitly. The shorter `bun --bun zeke` form resolves a project's local executable.
+For a global Bun install, invoke it with `bun "$(command -v zeke)" install` to select Bun explicitly. The shorter `bun --bun zeke` form resolves a project's local executable.
 
-Hooks retain the runtime used by `init` or `install`: installing with Bun makes automatic worktree copying use Bun, with no Node dependency. `zeke status` shows the installed runtime and executable. To switch an existing installation to Bun, run `bun --bun zeke install`; reinstall with Node to switch back.
+Hooks retain the runtime used by `init` or `install`: installing with Bun makes automatic worktree copying use Bun, with no Node dependency. `zeke status` shows the installed runtime and executable. To switch an existing installation to Bun, run `bun "$(command -v zeke)" install`; reinstall with Node to switch back.
 
-Commit `zeke.config.json` so teammates can share the rules, but keep the actual environment files ignored. Each developer runs `zeke install` once in their local clone. Hook installation is local to that clone and shared by its worktrees.
+Optionally run `zeke init` to create and commit `zeke.config.json` so teammates can share the rules, but keep the actual environment files ignored. Each developer runs `zeke install` once in their local clone to enable hooks and sync the current worktree. Hook installation is local to that clone and shared by its worktrees.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `zeke init` | Create config if missing, then install hooks |
-| `zeke install` | Install or refresh the local hook runtime |
+| `zeke init` | Create config if missing, enable hooks, and sync this worktree |
+| `zeke install` | Enable or refresh hooks and sync this worktree |
 | `zeke sync` | Copy missing files into the current worktree, even without installing hooks |
 | `zeke sync --dry-run` | Show what would be copied without writing files |
 | `zeke status` | Show hook installation, runtime, project root, and config |
@@ -101,11 +101,12 @@ Zeke skips symbolic links, nested Git repositories/submodules, and directories n
 
 ## How it works
 
-1. `init` locates Git's shared metadata directory with `git rev-parse --git-common-dir`.
+1. `install` (or `init`) locates Git's shared metadata directory with `git rev-parse --git-common-dir`.
 2. It saves the prior `core.hooksPath` setting and installs a small runtime under `<git-common-dir>/zeke/`.
 3. It points the repository's `core.hooksPath` at Zeke's generated hook directory.
-4. Hook dispatchers run the previous hooks with their arguments, stdin, working directory, environment, and exit status preserved.
-5. On an initial `post-checkout` event, identified by a zero old HEAD and the branch-checkout flag, Zeke finds matching ignored source files and copies missing ones using exclusive file creation.
+4. It syncs missing ignored files into the current worktree immediately.
+5. Hook dispatchers run the previous hooks with their arguments, stdin, working directory, environment, and exit status preserved.
+6. On an initial `post-checkout` event, identified by a zero old HEAD and the branch-checkout flag, Zeke finds matching ignored source files and copies missing ones using exclusive file creation.
 
 The installed runtime is copied into Git's metadata directory. It does not depend on the original package remaining installed or on `node_modules` existing in the new worktree. It records the Node or Bun executable used at installation; reinstall hooks with your chosen runtime after moving or removing that runtime installation.
 
