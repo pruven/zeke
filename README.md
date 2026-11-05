@@ -133,6 +133,17 @@ Run the integration suite with Bun using `bun run test:bun` (or `bun test`), and
 
 The integration tests create disposable real Git repositories and worktrees, exercising automatic copying, existing hooks, stdin and exit status forwarding, config restoration, symlinks, ignore rules, dry runs, and operation without the original package.
 
+### Documentation
+
+The VitePress guide lives in [`docs/index.md`](docs/index.md). Install development dependencies and start the docs server:
+
+```sh
+bun install
+bun run docs:dev
+```
+
+Use `bun run docs:build` to generate the static site in `docs/.vitepress/dist`, and `bun run docs:preview` to preview that build locally.
+
 ## Publishing to npm
 
 `.github/workflows/publish.yml` publishes the public package `@pruven/zeke` when a GitHub release is **published**. Draft releases do not publish. The CLI command remains `zeke`.
