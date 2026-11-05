@@ -5,3 +5,4 @@ docs/.vitepress/dist/
 .env
 .env.*
 !.env.example
+dist/

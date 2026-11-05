@@ -16,6 +16,7 @@ Install from npm with `npm install -g @pruven/zeke`. To install this checkout lo
 
 ```sh
 cd /path/to/zeke
+npm install
 npm install -g .
 
 cd /path/to/your-project
@@ -25,10 +26,10 @@ git worktree add ../my-feature -b my-feature
 
 `zeke install` enables automatic copying and syncs the current worktree in one command. It stores its hook runtime in Git’s metadata directory without adding dependencies or creating a config file in your project. The new worktree receives your ignored environment files immediately, including nested files such as `apps/api/.env.local`. No dependency installation is needed inside the new worktree.
 
-Alternatively, run the CLI directly without a global install:
+After building with `npm run build`, run the CLI directly without a global install:
 
 ```sh
-node /path/to/zeke/bin/zeke.js install
+node /path/to/zeke/dist/bin/zeke.js install
 ```
 
 ### Project-level setup
@@ -73,7 +74,7 @@ git worktree add ../my-feature -b my-feature
 You can also run it directly, without installing the package:
 
 ```sh
-bun /path/to/zeke/bin/zeke.js install
+bun /path/to/zeke/dist/bin/zeke.js install
 ```
 
 Use `bun "$(command -v zeke)" sync`, `bun "$(command -v zeke)" status`, and the other commands the same way. For a local package, use `bun --bun zeke`. The explicit `--bun` matters because Bun otherwise respects the CLI's Node shebang. See [Bun's shebang documentation](https://bun.sh/guides/install/from-npm-install-to-bun-install#shebang).
@@ -150,15 +151,16 @@ Install Zeke **after** other hook managers have completed setup. If a later tool
 
 ## Development
 
-No build step or runtime dependencies are required.
+The source and integration tests are written in TypeScript. Install development dependencies and compile to JavaScript in `dist/`; the published CLI and installed hooks have no runtime dependencies.
 
 ```sh
+bun install
 npm test
 npm run check
 npm pack --dry-run
 ```
 
-Run the integration suite with Bun using `bun run test:bun` (or `bun test`), and package using `bun pm pack`. The same suite runs on both runtimes; Bun also runs an additional test that installs hooks and creates a worktree with Node absent from `PATH`.
+Run the integration suite with Bun using `bun run test:bun`, and package using `bun pm pack`. Both test scripts compile the TypeScript before running the suite. The same suite runs on both runtimes; Bun also runs an additional test that installs hooks and creates a worktree with Node absent from `PATH`.
 
 The integration tests create disposable real Git repositories and worktrees, exercising automatic copying, existing hooks, stdin and exit status forwarding, config restoration, symlinks, ignore rules, dry runs, and operation without the original package.
 
@@ -187,7 +189,7 @@ For an existing npm package, open its npm settings and add a **GitHub Actions tr
 
 1. Set the desired version in `package.json` and commit/push the changes with the workflow.
 2. Create and publish a GitHub release whose tag is exactly `v` followed by that version, such as `v0.1.0`.
-3. The workflow checks the package name and tag, runs syntax checks and the Node and Bun integration suites, inspects the package, then publishes to npm.
+3. The workflow checks the package name and tag, runs TypeScript checks and the Node and Bun integration suites, inspects the package, then publishes to npm.
 
 Stable versions publish under npm's `latest` tag. Versions such as `0.2.0-beta.1` publish under `next`; use a matching GitHub prerelease tag such as `v0.2.0-beta.1`. Each npm version can be published only once, so increment the version for every release. A locally published bootstrap version should not be published again by a GitHub release.
 

@@ -1,3 +1,4 @@
+import type { TestContext } from 'node:test';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,27 +8,27 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const cli = fileURLToPath(new URL('../bin/zeke.js', import.meta.url));
-const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Zeke Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Zeke Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' };
+const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Zeke Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Zeke Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' };
 for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_CONFIG_COUNT']) delete env[key];
-function exec(cwd, command, args, success = true) {
+function exec(cwd: string, command: string, args: string[], success = true) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
   if (success) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stderr}\n${result.stdout}`);
   return result;
 }
-const git = (cwd, ...args) => exec(cwd, 'git', args);
-const zeke = (cwd, ...args) => exec(cwd, process.execPath, [cli, ...args]);
+const git = (cwd: string, ...args: string[]) => exec(cwd, 'git', args);
+const zeke = (cwd: string, ...args: string[]) => exec(cwd, process.execPath, [cli, ...args]);
 
 test('version flags work outside a Git repository and match the package metadata', () => {
-  const expected = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  const expected = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
   for (const flag of ['--version', '-v']) {
     assert.equal(zeke(os.tmpdir(), flag).stdout.trim(), expected);
   }
 });
-function write(root, file, contents, mode) {
+function write(root: string, file: string, contents: string, mode?: number) {
   fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
   fs.writeFileSync(path.join(root, file), contents, { mode });
 }
-function fixture(t) {
+function fixture(t: TestContext) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "zeke 'test "));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const root = path.join(temp, 'main repo');
