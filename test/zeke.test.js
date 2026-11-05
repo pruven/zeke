@@ -88,6 +88,53 @@ test('install enables hooks and syncs the current worktree without adding projec
   assert.equal(fs.readFileSync(path.join(next, '.env'), 'utf8'), 'TOKEN=source');
 });
 
+for (const source of ['missing', 'unrelated']) {
+  for (const reinstall of [false, true]) {
+    test(`${reinstall ? 'reinstall' : 'install'} with a ${source} source leaves hooks and runtime unchanged`, t => {
+      const f = fixture(t);
+      const target = f.worktree();
+      git(f.root, 'config', '--local', 'core.hooksPath', '.custom-hooks');
+      if (reinstall) zeke(target, 'install');
+      const hooksBefore = git(f.root, 'config', '--local', '--get', 'core.hooksPath').stdout;
+      const directory = path.join(f.root, '.git/zeke');
+      const statePath = path.join(directory, 'state.json');
+      const runtimePath = path.join(directory, 'runtime/zeke.js');
+      // Make refreshes observable on a failed reinstall.
+      if (reinstall) {
+        const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+        state.runtime.version = 'previous-version';
+        fs.writeFileSync(statePath, JSON.stringify(state));
+        fs.appendFileSync(runtimePath, '\n// Previous runtime\n');
+      }
+      const stateBefore = reinstall ? fs.readFileSync(statePath, 'utf8') : null;
+      const runtimeBefore = reinstall ? fs.readFileSync(runtimePath, 'utf8') : null;
+      const sourcePath = path.join(f.temp, source);
+      if (source === 'unrelated') {
+        fs.mkdirSync(sourcePath);
+        git(sourcePath, 'init');
+      }
+      write(f.root, 'zeke.config.json', JSON.stringify({ source: sourcePath }));
+      const result = exec(target, process.execPath, [cli, 'install'], false);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, source === 'missing' ? /ENOENT/ : /source must be a worktree of this repository/);
+      assert.doesNotMatch(result.stdout, /enabled/);
+      assert.equal(git(f.root, 'config', '--local', '--get', 'core.hooksPath').stdout, hooksBefore);
+      if (reinstall) {
+        assert.equal(fs.readFileSync(statePath, 'utf8'), stateBefore);
+        assert.equal(fs.readFileSync(runtimePath, 'utf8'), runtimeBefore);
+      } else {
+        assert.equal(fs.existsSync(directory), false);
+      }
+      // Fixing the source allows the same command to succeed normally.
+      write(f.root, 'zeke.config.json', JSON.stringify({ source: 'main-worktree' }));
+      write(f.root, '.env', 'TOKEN=source');
+      zeke(target, 'install');
+      assert.equal(JSON.parse(zeke(target, 'status').stdout).installed, true);
+      assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=source');
+    });
+  }
+}
+
 test('init also syncs the current worktree while creating the shared config', t => {
   const f = fixture(t);
   write(f.root, '.env', 'TOKEN=source');
