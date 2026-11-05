@@ -28,7 +28,6 @@
     "test:bun": "bun run build && bun test ./dist/test",
     "check": "tsc --noEmit",
     "build": "tsc",
-    "prepack": "npm run build",
     "prepare": "npm run build"
   },
   "license": "MIT",
