@@ -19,7 +19,35 @@ git worktree add ../my-feature -b my-feature
 
 `zeke install` enables automatic copying and syncs the current worktree in one command. It stores its hook runtime in Git’s metadata directory without adding dependencies or creating a config file in your project. The new worktree receives your ignored environment files immediately, including nested files such as `apps/api/.env.local`. No dependency installation is needed in the new worktree.
 
-### Using Bun
+### Project-level setup
+
+Install Zeke as a development dependency to keep its version with your project. No global installation is required.
+
+With npm:
+
+```sh
+cd /path/to/your-project
+npm install --save-dev @pruven/zeke
+npx zeke install
+git worktree add ../my-feature -b my-feature
+```
+
+With Bun:
+
+```sh
+cd /path/to/your-project
+bun add --dev @pruven/zeke
+bun --bun zeke install
+git worktree add ../my-feature -b my-feature
+```
+
+Commit `package.json` and your lockfile so teammates use the same version. After installing dependencies, each developer runs `npx zeke install` or `bun --bun zeke install` once in their clone. Run this after any other hook managers finish setup.
+
+Use the same local command prefix for other commands, such as `npx zeke status`, `npx zeke sync`, or `bun --bun zeke status`. To create a shared `zeke.config.json`, run `npx zeke init` or `bun --bun zeke init` and commit the config while keeping environment files ignored.
+
+The installed hook runtime lives in Git's shared metadata directory, so automatic copying works in new worktrees before their dependencies are installed. After updating the Zeke dependency, run the install command again to refresh that runtime.
+
+### Using Bun globally
 
 ```sh
 bun add --global @pruven/zeke
