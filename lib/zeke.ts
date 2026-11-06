@@ -61,7 +61,29 @@ export function git(args: string[], cwd = process.cwd(), { optional = false, inp
   return result.stdout;
 }
 
+const MIN_GIT = [2, 36, 0];
+export function parseGitVersion(output: string): number[] | null {
+  const match = /git version (\d+)\.(\d+)(?:\.(\d+))?/.exec(output);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)] : null;
+}
+export function isSupportedGit(version: number[]): boolean {
+  for (let i = 0; i < MIN_GIT.length; i++) {
+    if (version[i] !== MIN_GIT[i]) return version[i] > MIN_GIT[i];
+  }
+  return true;
+}
+// `git worktree list --porcelain -z` needs Git 2.36+. Fail early with a clear message.
+function requireGit() {
+  const result = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  if (result.error) throw new Error('Git was not found. Install Git 2.36 or newer.');
+  const version = parseGitVersion(result.stdout);
+  if (version && !isSupportedGit(version)) {
+    throw new Error(`Git ${version.join('.')} is too old. Zeke requires Git ${MIN_GIT.slice(0, 2).join('.')} or newer.`);
+  }
+}
+
 function context(): Context {
+  requireGit();
   const root = git(['rev-parse', '--show-toplevel']).trimEnd();
   const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], root).trimEnd();
   return { root, common, directory: path.join(common, 'zeke'), hooks: path.join(common, 'zeke', 'hooks') };
@@ -219,7 +241,7 @@ export function run(args: string[]): void {
     return;
   }
   if (!command || command === '--help' || command === '-h' || command === 'help') {
-    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [--dry-run] Copy missing ignored files into this worktree\n  status           Show installation, hook runtime, and source configuration\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
+    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [--dry-run] Copy missing ignored files into this worktree\n  status           Show installation, hook runtime, and source configuration\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git 2.36+. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
     return;
   }
   if (flags.some(flag => command !== 'sync' || flag !== '--dry-run')) throw new Error('Unknown option. Run zeke --help.');
