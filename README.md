@@ -7,7 +7,7 @@ Zeke installs a `post-checkout` hook that copies missing, ignored `.env` and `.e
 ## Requirements
 
 - Node.js 22.20+ **or** Bun 1.4.4+, available when Git runs hooks. You only need one runtime.
-- Git with worktree support.
+- Git 2.36 or newer. Older versions, such as the 2.34 shipped with Ubuntu 22.04, are not supported.
 - Linux or macOS. Windows / Git Bash has not been tested.
 
 ## Install from this checkout
