@@ -6,7 +6,7 @@ Zeke installs a Git `post-checkout` hook that copies missing, ignored `.env` and
 
 ## Getting started
 
-You need Git with worktree support and either Node.js 22.20+ or Bun 1.4.4+. Zeke supports Linux and macOS; Windows / Git Bash has not been tested.
+You need Git 2.36 or newer and either Node.js 22.20+ or Bun 1.4.4+. Zeke supports Linux and macOS; Windows / Git Bash has not been tested.
 
 Install Zeke globally, then enable it in your project:
 
