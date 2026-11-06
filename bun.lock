@@ -5,7 +5,6 @@
     "": {
       "name": "@pruven/zeke",
       "devDependencies": {
-        "@pruven/zeke": "^0.1.1",
         "@types/node": "^22.19.0",
         "typescript": "~5.9.3",
         "vitepress": "^1.6.4",
@@ -114,8 +113,6 @@
     "@iconify/types": ["@iconify/types@2.0.0", "", {}, "sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg=="],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
-
-    "@pruven/zeke": ["@pruven/zeke@0.1.1", "", { "bin": { "zeke": "bin/zeke.js" } }, "sha512-C6YVOiz0cLKhBt3DF1EP2bqNta8E83KHedaPsrCZ/wQmEudh6lqj0BnpkW/x32DwtbXYo5djrZR5gNnDWvxp8Q=="],
 
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.67.5", "", { "os": "android", "cpu": "arm" }, "sha512-FdWPeulkH+FH+rBzyKBD59tuVN4tRKvmVilSJm0OcnoYsQTpd9UhD78OaPcsYqo2fX6hCwAG0YIjrDLoQ3pR3g=="],
 
