@@ -318,3 +318,14 @@ test('Bun installs and executes hooks without Node on PATH', { skip: !process.ve
   const status = JSON.parse(spawnSync(process.execPath, [cli, 'status'], { cwd: target, env: bunEnv, encoding: 'utf8' }).stdout);
   assert.equal(status.runtime.name, 'bun');
 });
+
+test('refuses to run with a Git older than 2.36 and shows a clear message', t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'zeke old git '));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const shim = path.join(temp, 'git');
+  fs.writeFileSync(shim, '#!/bin/sh\necho "git version 2.34.1"\n', { mode: 0o755 });
+  const result = spawnSync(process.execPath, [cli, 'status'], { cwd: temp, encoding: 'utf8', env: { ...env, PATH: `${temp}${path.delimiter}${process.env.PATH}` } });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Git 2\.34\.1 is too old\. Zeke requires Git 2\.36 or newer\./);
+  assert.doesNotMatch(result.stderr, /usage:/);
+});
