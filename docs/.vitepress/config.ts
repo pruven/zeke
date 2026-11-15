@@ -13,7 +13,8 @@ export default defineConfig({
   ],
   themeConfig: {
     nav: [
-      { text: 'Guide', link: '/', activeMatch: '^/$' },
+      // This link opens the whole guide; section links carry their own active state.
+      { text: 'Guide', link: '/', activeMatch: '(?!)' },
       { text: 'Commands', link: '/#commands' },
       { text: 'Configuration', link: '/#configuration' },
     ],

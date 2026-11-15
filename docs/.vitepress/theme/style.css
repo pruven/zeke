@@ -36,6 +36,7 @@
   --vp-local-nav-bg-color: var(--vp-c-bg);
   --vp-nav-height: 72px;
   --action: var(--p-action);
+  --action-ink: var(--p-action-ink);
   --bg: var(--vp-c-bg);
   --ink: var(--vp-c-text-1);
   --line: var(--vp-c-divider);
@@ -67,8 +68,9 @@ body { -webkit-font-smoothing: antialiased; }
 ::selection { background: var(--vp-c-brand-soft); }
 :focus-visible { outline: 2px solid var(--vp-c-brand-1); outline-offset: 3px; }
 
+.VPNav { background-color: var(--vp-nav-bg-color); }
 .VPNavBar { border-bottom: 1px solid var(--vp-c-divider); }
-.VPNavBar .divider, .VPNavBar .curtain { display: none; }
+.VPNavBar .divider { display: none; }
 .VPNavBarTitle .title { gap: 12px; font-size: 23px; font-weight: 500; letter-spacing: -1px; }
 .VPNavBarTitle .title::before {
   content: 'z';

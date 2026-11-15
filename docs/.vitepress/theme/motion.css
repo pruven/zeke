@@ -1,7 +1,6 @@
 /*
-  taste-skill motion.css - the micro-interactions a company site has (figma.com, x.ai): one small
-  opt-in layer over system.css and ui/cards.css. Link it after them (data-motion on <html> is optional);
-  load motion.js once (it adds the tab indicator, the number tick and the card loops).
+  Motion layer adapted from taste-skill for the VitePress theme.
+  Imported by style.css; data-motion on <html> is optional.
   The layer is ON as soon as this file is linked: no attribute is needed (a hover shot of a linked card or photo
   shows the 2px lift and the 1.03 zoom). <html data-motion="off"> switches the whole layer off; data-motion="live"
   is the number tick in a headless shot (motion.js).
@@ -32,18 +31,16 @@ html:not([data-motion="off"]) .btn {
               border-color var(--m-out) var(--m-ease), box-shadow var(--m-out) var(--m-ease),
               transform var(--m-press) var(--m-ease);
 }
-/* the tone moves toward the ground: a black button greys a little on white, a white one on black */
-html:not([data-motion="off"]) .btn--primary:hover { background: color-mix(in oklab, var(--action) 84%, var(--bg)); }
-html:not([data-motion="off"]) .btn--secondary:hover {
-  background: color-mix(in oklab, var(--bg) 92%, var(--ink));
-  border-color: color-mix(in oklab, var(--ink) 32%, transparent);
-}
-html:not([data-motion="off"]) .btn:hover { transition-duration: var(--m-in), var(--m-in), var(--m-in), var(--m-in), var(--m-press); }
-html:not([data-motion="off"]) .btn:active { transform: translateY(1px) scale(.985); }
 /* the step: a button rises 1px on hover (2px on the large size) and presses 1px down with a 1.5% shrink on
    click; pointer only. The text-link secondary (arrow and block looks) keeps its underline and does not step.
    Reduced motion keeps the colour change only (see the end of this file). */
 @media (hover: hover) and (pointer: fine) {
+  html:not([data-motion="off"]) .btn--primary:hover { background: color-mix(in oklab, var(--action) 84%, var(--bg)); }
+  html:not([data-motion="off"]) .btn--secondary:hover {
+    background: color-mix(in oklab, var(--bg) 92%, var(--ink));
+    border-color: color-mix(in oklab, var(--ink) 32%, transparent);
+  }
+  html:not([data-motion="off"]) .btn:hover { transition-duration: var(--m-in), var(--m-in), var(--m-in), var(--m-in), var(--m-press); }
   html:not([data-motion="off"]) .btn:hover { transform: translateY(-1px); }
   html:not([data-motion="off"]) .btn--xl:hover { transform: translateY(-2px); }
   html:not([data-motion="off"]):is([data-buttons="arrow"], [data-buttons="block"]) .btn--secondary:hover { transform: none; }
@@ -57,13 +54,13 @@ html:not([data-motion="off"]) :is(.btn--arrow, .link)::after { transition: trans
 html:not([data-motion="off"]) :is(.btn--arrow, .link):hover::after { transform: translateX(3px); transition-duration: var(--m-in); }
 .m-arrow { width: 12px; height: 12px; flex: none; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.6;
            stroke-linecap: round; stroke-linejoin: round; }
-.m-arrow__stem { opacity: 0; transform: scaleX(.2); transform-origin: 1px 50%; transform-box: fill-box;
+html:not([data-motion="off"]) .m-arrow__stem { opacity: 0; transform: scaleX(.2); transform-origin: 1px 50%; transform-box: fill-box;
                  transition: opacity var(--m-out) var(--m-ease), transform var(--m-out) var(--m-ease); }
-.m-arrow__head { transition: transform var(--m-out) var(--m-ease); }
-:is(a, button):hover > .m-arrow .m-arrow__stem,
-:is(a, button):focus-visible > .m-arrow .m-arrow__stem { opacity: 1; transform: none; transition-duration: var(--m-in); }
-:is(a, button):hover > .m-arrow .m-arrow__head,
-:is(a, button):focus-visible > .m-arrow .m-arrow__head { transform: translateX(3px); transition-duration: var(--m-in); }
+html:not([data-motion="off"]) .m-arrow__head { transition: transform var(--m-out) var(--m-ease); }
+html:not([data-motion="off"]) :is(a, button):hover > .m-arrow .m-arrow__stem,
+html:not([data-motion="off"]) :is(a, button):focus-visible > .m-arrow .m-arrow__stem { opacity: 1; transform: none; transition-duration: var(--m-in); }
+html:not([data-motion="off"]) :is(a, button):hover > .m-arrow .m-arrow__head,
+html:not([data-motion="off"]) :is(a, button):focus-visible > .m-arrow .m-arrow__head { transform: translateX(3px); transition-duration: var(--m-in); }
 
 /* a pill that is a link (the line above a hero headline) */
 html:not([data-motion="off"]) a.pill { transition: background-color var(--m-out) var(--m-ease), border-color var(--m-out) var(--m-ease); }
@@ -94,43 +91,23 @@ html:not([data-motion="off"]) .link:is(:hover, :focus-visible) { background-size
 html:not([data-motion="off"]) .link, html:not([data-motion="off"]) .link:is(:hover, :focus-visible) { background-position: 0 100%, 0 100%; }
 html:not([data-motion="off"]) .footer ul a:hover { color: var(--ink); }
 
-/* ---------------------------------------------------------------- navigation */
-/* the nav words take no pill (ST-08, ST-11): system.css draws the underline under a word from the left on hover and focus, and
-   takes it away to the right; the page you are on keeps its still bar (system.css draws it, at the same inset) */
-@media (min-width: 1024px) {
-  /* the full-width panel: fades and settles 6px in 200ms, its columns follow 30ms apart; it closes
-     in 120ms. While one menu is open, the next word swaps the panel at once (motion.js .m-menu-open) */
-  html:not([data-motion="off"]) .nav__menu {
-    transform: translateY(-6px);
-    transition: opacity 120ms var(--m-ease), transform 120ms var(--m-ease), visibility 0s linear 120ms;
-  }
-  html:not([data-motion="off"]) .nav__item:is(:hover, :focus-within) > .nav__menu {
-    transition: opacity var(--m-panel) var(--m-ease) 150ms, transform var(--m-panel) var(--m-ease) 150ms, visibility 0s linear 150ms;
-  }
-  /* .m-menu-open comes on when the first panel starts to show (150ms): from then the next word swaps
-     the panel at once. Duration and delay go to 0, the properties stay listed, so the panel that is
-     still fading in finishes its own 200ms instead of snapping */
-  html:not([data-motion="off"]) .nav.m-menu-open .nav__menu,
-  html:not([data-motion="off"]) .nav.m-menu-open .nav__item:is(:hover, :focus-within) > .nav__menu { transition-duration: 0s; transition-delay: 0s; }
-  html:not([data-motion="off"]) .nav__menu .grid > * { opacity: 0; transform: translateY(4px); transition: opacity 100ms var(--m-ease), transform 100ms var(--m-ease); }
-  html:not([data-motion="off"]) .nav__item:is(:hover, :focus-within) > .nav__menu .grid > * {
-    opacity: 1; transform: none; transition: opacity 260ms var(--m-ease), transform 260ms var(--m-ease);
-    transition-delay: calc(170ms + var(--m-i, 0) * 30ms);
-  }
-  html:not([data-motion="off"]) .nav.m-menu-open .nav__item:is(:hover, :focus-within) > .nav__menu .grid > * { transition-delay: calc(var(--m-i, 0) * 30ms); }
-  html:not([data-motion="off"]) .nav__menu .grid > :nth-child(2) { --m-i: 1; }
-  html:not([data-motion="off"]) .nav__menu .grid > :nth-child(3) { --m-i: 2; }
-  html:not([data-motion="off"]) .nav__menu .grid > :nth-child(4) { --m-i: 3; }
-  html:not([data-motion="off"]) .nav__menu .grid > :nth-child(n + 5) { --m-i: 4; }
-  html:not([data-motion="off"]) .menu-col a { transition: color var(--m-out) var(--m-ease); }
-  html:not([data-motion="off"]) .menu-col a:hover { transition-duration: var(--m-in); }
-  html:not([data-motion="off"]) .menu-card .panel { transition: border-color var(--m-out) var(--m-ease); }
+/* ---------------------------------------------------------------- VitePress navigation */
+/* VitePress owns visibility and open state; animate its actual flyout and mobile sheet. */
+html:not([data-motion="off"]) .VPNavBar .VPFlyout > .menu {
+  transition: opacity var(--m-panel) var(--m-ease), visibility var(--m-panel);
 }
-/* the phone sheet slides in 8px and fades (system.js opens it) */
-@media (max-width: 1023px) {
-  html:not([data-motion="off"]) .nav.is-open .nav__links { transition: opacity var(--m-panel) var(--m-ease), transform var(--m-panel) var(--m-ease); }
-  @starting-style { html:not([data-motion="off"]) .nav.is-open .nav__links { opacity: 0; transform: translateY(-8px); } }
+html:not([data-motion="off"]) .VPNavScreen:is(.fade-enter-active, .fade-leave-active) {
+  transition: opacity var(--m-panel) var(--m-ease);
 }
+html:not([data-motion="off"]) .VPNavScreen:is(.fade-enter-active, .fade-leave-active) > .container {
+  transition: transform var(--m-panel) var(--m-ease);
+}
+html[data-motion="off"] .VPNavBar .VPFlyout > .menu,
+html[data-motion="off"] .VPNavScreen,
+html[data-motion="off"] .VPNavScreen > .container {
+  transition: none;
+}
+html[data-motion="off"] .VPNavScreen > .container { transform: none; }
 
 /* ---------------------------------------------------------------- tabs: the indicator slides */
 html:not([data-motion="off"]) .tabs.m-has-ind { position: relative; isolation: isolate; }
@@ -140,9 +117,11 @@ html:not([data-motion="off"]) .tabs.m-has-ind .tab[aria-selected="true"] { backg
   position: absolute; left: 0; top: 0; z-index: 0; width: var(--w, 0px); height: var(--h, 0px);
   border-radius: var(--r-btn); background: var(--ink); pointer-events: none;
   transform: translate(var(--x, 0px), var(--y, 0px));
+}
+html:not([data-motion="off"]) .m-tab-ind {
   transition: transform var(--m-slide) var(--m-ease-io), width var(--m-slide) var(--m-ease-io), height var(--m-slide) var(--m-ease-io);
 }
-.m-tab-ind.is-jump { transition: none; }
+html:not([data-motion="off"]) .m-tab-ind.is-jump { transition: none; }
 html:not([data-motion="off"]) .tab { transition: color var(--m-slide) var(--m-ease), border-color var(--m-out) var(--m-ease), background-color var(--m-out) var(--m-ease); }
 
 /* ---------------------------------------------------------------- focus: the ring settles in */
@@ -187,11 +166,11 @@ html:not([data-motion="off"]) :is(.frame__img, .tile__media > img, .m-zoom img, 
 }
 
 /* ---------------------------------------------------------------- inputs, switches, checks */
-html:not([data-motion="off"]) .field :is(input, select, textarea), .m-input {
+html:not([data-motion="off"]) .field :is(input, select, textarea), html:not([data-motion="off"]) .m-input {
   transition: border-color var(--m-out) var(--m-ease), box-shadow var(--m-out) var(--m-ease), background-color var(--m-out) var(--m-ease);
 }
-html:not([data-motion="off"]) .field :is(input, select, textarea):hover, .m-input:hover { border-color: color-mix(in oklab, var(--ink) 48%, transparent); }
-html:not([data-motion="off"]) .field :is(input, select, textarea):focus, .m-input:focus {
+html:not([data-motion="off"]) .field :is(input, select, textarea):hover, html:not([data-motion="off"]) .m-input:hover { border-color: color-mix(in oklab, var(--ink) 48%, transparent); }
+html:not([data-motion="off"]) .field :is(input, select, textarea):focus, html:not([data-motion="off"]) .m-input:focus {
   outline: none; border-color: var(--action);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--action) 20%, transparent); transition-duration: var(--m-in);
 }
@@ -202,30 +181,39 @@ html:not([data-motion="off"]) .field :is(input, select, textarea):focus, .m-inpu
 .m-switch {
   position: relative; flex: none; width: 40px; height: 24px; padding: 0; border: 0; border-radius: 999px; cursor: pointer;
   background: color-mix(in oklab, var(--ink) 48%, var(--bg));
+}
+html:not([data-motion="off"]) .m-switch {
   transition: background-color 180ms var(--m-ease);
 }
 .m-switch::before {
   content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 999px;
   background: var(--bg); box-shadow: 0 1px 3px rgb(0 0 0 / .25);
+}
+html:not([data-motion="off"]) .m-switch::before {
   transition: transform 180ms var(--m-ease), width var(--m-press) var(--m-ease);
 }
 .m-switch[aria-checked="true"] { background: var(--action); }
 .m-switch[aria-checked="true"]::before { transform: translateX(16px); background: var(--action-ink); }
-.m-switch:active::before { width: 22px; }
-.m-switch[aria-checked="true"]:active::before { transform: translateX(12px); }
-.m-switch:hover:not([aria-checked="true"]) { background: color-mix(in oklab, var(--ink) 58%, var(--bg)); }
+html:not([data-motion="off"]) .m-switch:active::before { width: 22px; }
+html:not([data-motion="off"]) .m-switch[aria-checked="true"]:active::before { transform: translateX(12px); }
+html:not([data-motion="off"]) .m-switch:hover:not([aria-checked="true"]) { background: color-mix(in oklab, var(--ink) 58%, var(--bg)); }
 /* a check box: <input type="checkbox" class="m-check">, the tick draws in 160ms */
 .m-check {
   appearance: none; -webkit-appearance: none; flex: none; margin: 0; width: 20px; height: 20px; border-radius: 6px; cursor: pointer;
   border: 1px solid color-mix(in oklab, var(--ink) 48%, var(--bg)); background: var(--bg) no-repeat center / 14px 14px;
   display: inline-grid; place-items: center;
+}
+html:not([data-motion="off"]) .m-check {
   transition: background-color var(--m-in) var(--m-ease), border-color var(--m-in) var(--m-ease);
 }
 .m-check::before {
   content: ""; width: 10px; height: 6px; margin-top: -2px; border: solid var(--action-ink); border-width: 0 0 2px 2px;
-  transform: rotate(-45deg) scale(0); transform-origin: 50% 50%; transition: transform 160ms var(--m-ease);
+  transform: rotate(-45deg) scale(0); transform-origin: 50% 50%;
 }
-.m-check:hover:not(:checked) { border-color: color-mix(in oklab, var(--ink) 64%, var(--bg)); }
+html:not([data-motion="off"]) .m-check::before {
+  transition: transform 160ms var(--m-ease);
+}
+html:not([data-motion="off"]) .m-check:hover:not(:checked) { border-color: color-mix(in oklab, var(--ink) 64%, var(--bg)); }
 .m-check:checked { background-color: var(--action); border-color: var(--action); }
 .m-check:checked::before { transform: rotate(-45deg) scale(1); }
 
@@ -233,34 +221,49 @@ html:not([data-motion="off"]) .field :is(input, select, textarea):focus, .m-inpu
    Every answer stays open (ST-47, system.css): nothing here opens, closes or animates its height. */
 
 /* ---------------------------------------------------------------- numbers that tick once */
-[data-m-count] { font-variant-numeric: tabular-nums; }
+html:not([data-motion="off"]) [data-m-count] { font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------------- loops inside a card's panel */
 /* a CSS loop the page writes inside [data-m-loop] runs one cycle in --m-cycle (2.5-4 s) and repeats
    while on screen; motion.js pauses it off screen and restarts it on hover (motion.md) */
-[data-m-loop] { --m-cycle: 3.2s; --m-still: 0.6; --m-safe: 48px; }
+html:not([data-motion="off"]) [data-m-loop] { --m-cycle: 3.2s; --m-still: 0.6; --m-safe: 48px; }
 /* the pause button (a 32px disc 12px in from the bottom-right corner) gets a clear band: content in
    the flow ends --m-safe (48px) above the bottom edge, and a fading stage dissolves above that band,
    never under the button. Size the panel so the loop's subject sits above the fade */
-[data-m-loop]:not(:has(> .stage)) { padding-bottom: var(--m-safe); }
-[data-m-loop] > .stage:is(.stage--fade-b, .stage--fade-br) { bottom: var(--m-safe); }
+html:not([data-motion="off"]) [data-m-loop]:not(:has(> .stage)) { padding-bottom: var(--m-safe); }
+html:not([data-motion="off"]) [data-m-loop] > .stage:is(.stage--fade-b, .stage--fade-br) { bottom: var(--m-safe); }
 /* on a phone (as ui.js does) and under reduced motion a loop holds its finished picture: the frame at
    --m-still (0-1) of the cycle, set on the loop where the picture is complete */
 @media (max-width: 639px) {
-  [data-m-loop] * { animation-duration: var(--m-cycle) !important; animation-delay: calc(-1 * var(--m-still) * var(--m-cycle)) !important;
+  html:not([data-motion="off"]) [data-m-loop] * { animation-duration: var(--m-cycle) !important; animation-delay: calc(-1 * var(--m-still) * var(--m-cycle)) !important;
                     animation-play-state: paused !important; }
 }
-[data-m-loop].is-m-off *, [data-m-loop].is-m-paused * { animation-play-state: paused !important; }
+html:not([data-motion="off"]) [data-m-loop].is-m-off *, html:not([data-motion="off"]) [data-m-loop].is-m-paused * { animation-play-state: paused !important; }
 
 /* ---------------------------------------------------------------- reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-motion="off"]) .card:hover, html:not([data-motion="off"]) .card--open:hover > .panel,
+  html:not([data-motion="off"]) :is(.btn, .card, .card--open > .panel, .link, .m-link,
+    p a:not([class]), .footer ul a, .m-arrow__stem, .m-arrow__head, .m-tab-ind, .tab,
+    .field input, .field select, .field textarea, .m-input, .m-switch, .m-check),
+  html:not([data-motion="off"]) :is(.btn--arrow, .link)::after,
+  html:not([data-motion="off"]) :is(.m-switch, .m-check)::before {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+  }
+  html:not([data-motion="off"]) .card:hover,
+  html:not([data-motion="off"]) .card--open:hover > .panel,
   html:not([data-motion="off"]) :is(a, .card:has(a), .m-zoom):hover :is(.frame__img, .tile__media > img, img, video),
-  html:not([data-motion="off"]) .btn:is(:hover, :active), html:not([data-motion="off"]) :is(.btn--arrow, .link):hover::after,
-  :is(a, button):hover > .m-arrow :is(.m-arrow__head, .m-arrow__stem) { transform: none !important; }
-  .m-arrow__stem { opacity: 1; transform: none; }
-  html:not([data-motion="off"]) .nav__menu, html:not([data-motion="off"]) .nav__menu .grid > * { transform: none !important; }
+  html:not([data-motion="off"]) .btn:is(:hover, :active),
+  html:not([data-motion="off"]) :is(.btn--arrow, .link):hover::after,
+  html:not([data-motion="off"]) .m-arrow :is(.m-arrow__head, .m-arrow__stem) {
+    transform: none !important;
+  }
+  html:not([data-motion="off"]) .m-arrow__stem { opacity: 1; }
+  html:not([data-motion="off"]) .m-switch:active::before { width: 18px; }
+  html:not([data-motion="off"]) .m-switch[aria-checked="true"]:active::before { transform: translateX(16px); }
+  html:not([data-motion="off"]) .VPNavScreen > .container { transform: none !important; transition: none; }
   html:not([data-motion="off"]) :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible { animation: none; }
-  [data-m-loop] * { animation-duration: var(--m-cycle) !important; animation-iteration-count: infinite !important;
-                    animation-delay: calc(-1 * var(--m-still) * var(--m-cycle)) !important; animation-play-state: paused !important; }
+  html:not([data-motion="off"]) [data-m-loop] * {
+    animation-duration: var(--m-cycle) !important; animation-iteration-count: infinite !important;
+    animation-delay: calc(-1 * var(--m-still) * var(--m-cycle)) !important; animation-play-state: paused !important;
+  }
 }
