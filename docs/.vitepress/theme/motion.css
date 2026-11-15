@@ -260,6 +260,10 @@ html:not([data-motion="off"]) [data-m-loop].is-m-off *, html:not([data-motion="o
   html:not([data-motion="off"]) .m-arrow__stem { opacity: 1; }
   html:not([data-motion="off"]) .m-switch:active::before { width: 18px; }
   html:not([data-motion="off"]) .m-switch[aria-checked="true"]:active::before { transform: translateX(16px); }
+  html:not([data-motion="off"]) .VPNavBar .VPFlyout > .menu,
+  html:not([data-motion="off"]) .VPNavScreen:is(.fade-enter-active, .fade-leave-active) {
+    transition: none;
+  }
   html:not([data-motion="off"]) .VPNavScreen > .container { transform: none !important; transition: none; }
   html:not([data-motion="off"]) :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible { animation: none; }
   html:not([data-motion="off"]) [data-m-loop] * {
