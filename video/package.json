@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "bun test ./test",
     "studio": "remotion studio src/index.ts",
     "render": "remotion render src/index.ts Zeke out/zeke.mp4 --codec=h264 --crf=18",
     "check": "tsc --noEmit"

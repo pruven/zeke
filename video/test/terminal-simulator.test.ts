@@ -44,4 +44,12 @@ describe("terminal typing clock", () => {
       expect(chunkedReveal(starts[i + 1] - starts[i], lines[i].text.length, 0.1, 3)).toBe(lines[i].text.length);
     }
   });
+
+  test("schedules Unicode lines by visible characters", () => {
+    const lines = [
+      { text: "A👩🏽‍💻🇮🇳e\u0301", type: "command" as const, delay: 0 },
+      { text: "done", type: "success" as const, delay: 0 },
+    ];
+    expect(computeLineStarts(lines, 1, 1, 0)).toEqual([0, 4]);
+  });
 });

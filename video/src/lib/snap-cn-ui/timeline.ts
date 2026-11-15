@@ -1,13 +1,6 @@
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import type { Step } from "./types";
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, {
-  granularity: "grapheme",
-});
-
-function textCharacters(text: string): string[] {
-  return Array.from(graphemeSegmenter.segment(text), ({ segment }) => segment);
-}
+import { splitGraphemes } from "./text";
 
 export function framesFor(
   d: number | { seconds: number },
@@ -32,7 +25,7 @@ export function clamp01(t: number): number {
 }
 
 export function revealedText(full: string, count: number): string {
-  const characters = textCharacters(full);
+  const characters = splitGraphemes(full);
   const c = Math.max(0, Math.min(characters.length, Math.floor(count)));
   return characters.slice(0, c).join("");
 }
@@ -58,7 +51,7 @@ export function useTypewriter(
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const local = frame * speed - startFrame;
-  const characters = textCharacters(full);
+  const characters = splitGraphemes(full);
   const count = local <= 0 ? 0 : revealCount(local, fps, characters.length, cps);
   return {
     text: characters.slice(0, count).join(""),

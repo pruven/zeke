@@ -4,6 +4,8 @@ A 26.4-second, 1280×720, 30fps product demo built with Remotion and SnapCN's `t
 
 From the repository root, install video dependencies once with `bun install --cwd video`, then run `bun run video:studio` or `bun run video:render`.
 
+Validate with `bun run video:check` and `bun run video:test`. CI runs both against the standalone video package. Browser regression tests use Remotion's Chrome Headless Shell; download it ahead of the tests with `bun run --bun --cwd video remotion browser ensure`.
+
 ```sh
 cd video
 bun install

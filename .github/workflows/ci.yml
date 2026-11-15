@@ -9,6 +9,23 @@ permissions:
   contents: read
 
 jobs:
+  video:
+    name: Check video and run regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - run: bun install --cwd video --frozen-lockfile
+      - run: bun run video:check
+      - name: Download browser for measurement tests
+        run: bun run --bun --cwd video remotion browser ensure
+      - run: bun run video:test
+
   test:
     name: Test Node and Bun
     runs-on: ubuntu-latest

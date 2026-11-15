@@ -12,6 +12,7 @@ import {
   mixOklch,
   parseColor,
   resolveFont,
+  splitGraphemes,
   type SnapCnTheme,
   useSnapCnTheme,
   withAlpha,
@@ -220,7 +221,7 @@ export function computeLineStarts(
     acc += line.delay ?? 8;
     starts.push(acc);
     acc +=
-      typingDuration(line.text.length, charsPerFrame, chunkSize) +
+      typingDuration(splitGraphemes(line.text).length, charsPerFrame, chunkSize) +
       autoPause(line);
   }
   return starts;
@@ -740,15 +741,16 @@ function CommandStation({
 }) {
   const argColor = light ? LIGHT_ARG_COLOR : CMD_ARG_COLOR;
   const managers = command.managers?.length ? command.managers : ["npm"];
+  const characters = splitGraphemes(command.text);
   const revealed = chunkedReveal(
     Math.max(0, frame - typeStart),
-    command.text.length,
+    characters.length,
     charsPerFrame,
     chunkSize,
   );
-  const typingDone = revealed >= command.text.length;
+  const typingDone = revealed >= characters.length;
   const blink = Math.floor((frame / fps) * 2) % 2 === 0;
-  const spans = commandSpans(command.text, argColor);
+  const spans = commandSpans(characters.slice(0, revealed).join(""), argColor);
 
   const tabFont = Math.round(20 * fontScale);
   const rowFont = Math.round(33 * fontScale);
@@ -811,23 +813,15 @@ function CommandStation({
           whiteSpace: "pre",
         }}
       >
-        {(() => {
-          let acc = 0;
-          return spans.map((p, i) => {
-            const start = acc;
-            acc += p.text.length;
-            const vis = Math.max(0, Math.min(p.text.length, revealed - start));
-            return (
-              <span
-                // biome-ignore lint/suspicious/noArrayIndexKey: positional spans
-                key={i}
-                style={{ color: p.color }}
-              >
-                {p.text.slice(0, vis)}
-              </span>
-            );
-          });
-        })()}
+        {spans.map((p, i) => (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: positional spans
+            key={i}
+            style={{ color: p.color }}
+          >
+            {p.text}
+          </span>
+        ))}
         {!typingDone && frame >= typeStart && blink && (
           <span
             style={{
@@ -882,13 +876,14 @@ function TerminalStation({
         }}
       >
         {lines.map((line, index) => {
+          const characters = splitGraphemes(line.text);
           const revealed = chunkedReveal(
             Math.max(0, frame - starts[index]),
-            line.text.length,
+            characters.length,
             charsPerFrame,
             chunkSize,
           );
-          const typingDone = revealed >= line.text.length;
+          const typingDone = revealed >= characters.length;
           const isLast = index === lines.length - 1;
           const showCursor =
             line.type === "command" &&
@@ -913,7 +908,7 @@ function TerminalStation({
                   whiteSpace: "pre",
                 }}
               >
-                <span>{line.text.substring(0, revealed)}</span>
+                <span>{characters.slice(0, revealed).join("")}</span>
                 {showCursor && (
                   <span
                     style={{

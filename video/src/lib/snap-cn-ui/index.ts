@@ -7,6 +7,7 @@ export {
   withAlpha,
 } from "./color";
 export { FONT_NAMES, FONTS, resolveFont } from "./fonts";
+export { splitGraphemes } from "./text";
 export type { ItemHost } from "./item";
 export { Item, ItemHostProvider } from "./item";
 export type { EasingName, SpringName } from "./motion";

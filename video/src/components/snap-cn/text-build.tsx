@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { Easing, interpolate, useCurrentFrame } from "remotion";
 import {
   resolveFont,
@@ -92,7 +92,7 @@ export function measureWordSizes(
   fontFamily = FONT_FAMILY,
 ): number[] {
   if (axis === "y") return words.map(() => fontSize);
-  if (typeof document === "undefined")
+  if (typeof document === "undefined" || !document.body)
     return fallbackWordSizes(words, axis, fontSize);
   const span = document.createElement("span");
   Object.assign(span.style, {
@@ -169,19 +169,22 @@ export function TextBuild({
 
   const words = useMemo(() => text.match(/\S+/g) ?? [], [text]);
 
-  // DOM text measurement isn't available during SSR, so the first client
-  // render must also use the fallback estimate (matching the server-rendered
-  // markup) before upgrading to the precise DOM measurement post-mount —
-  // otherwise the two renders disagree and React logs a hydration mismatch.
-  const [measured, setMeasured] = useState(false);
-  useEffect(() => setMeasured(true), []);
-  const sizes = useMemo(
-    () =>
-      measured
-        ? measureWordSizes(words, axis, fontSize, fontWeight, face)
-        : fallbackWordSizes(words, axis, fontSize),
-    [measured, words, axis, fontSize, fontWeight, face],
-  );
+  // Keep rendering pure and SSR-compatible. Measure only after the DOM commit,
+  // and use estimates when new props no longer match the stored measurement.
+  const measurementKey = JSON.stringify([words, axis, fontSize, fontWeight, face]);
+  const [measurement, setMeasurement] = useState<{
+    key: string;
+    sizes: number[];
+  } | null>(null);
+  useLayoutEffect(() => {
+    setMeasurement({
+      key: measurementKey,
+      sizes: measureWordSizes(words, axis, fontSize, fontWeight, face),
+    });
+  }, [measurementKey, words, axis, fontSize, fontWeight, face]);
+  const sizes = measurement?.key === measurementKey
+    ? measurement.sizes
+    : fallbackWordSizes(words, axis, fontSize);
   const positionsAt = useMemo(
     () => centeredPositions(sizes, spacing),
     [sizes, spacing],
