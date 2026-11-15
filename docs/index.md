@@ -1,12 +1,15 @@
-# Zeke
+---
+title: Guide
+description: Set up Zeke to copy local environment files into new Git worktrees. Installation, commands, configuration, and copy behavior.
+---
 
-Your local environment files, automatically available in every new Git worktree.
-
-Zeke installs a Git `post-checkout` hook that copies missing, ignored `.env` and `.env.*` files from your main checkout into new worktrees. It preserves directory structure, excludes `.env.example`, and never overwrites existing files.
+<DocsIntro />
 
 ## Getting started
 
 You need Git 2.36 or newer and either Node.js 22.20+ or Bun 1.4.4+. Zeke supports Linux and macOS; Windows / Git Bash has not been tested.
+
+Zeke installs a Git `post-checkout` hook that copies missing, ignored `.env` and `.env.*` files from your main checkout. It excludes `.env.example` and never overwrites existing files.
 
 Install Zeke globally, then enable it in your project:
 
