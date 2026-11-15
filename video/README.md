@@ -2,6 +2,8 @@
 
 A 26.4-second, 1280×720, 30fps product demo built with Remotion and SnapCN's `text-build`, `text-reveal`, and `terminal-simulator` components.
 
+From the repository root, install video dependencies once with `bun install --cwd video`, then run `bun run video:studio` or `bun run video:render`.
+
 ```sh
 cd video
 bun install
