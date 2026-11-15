@@ -201,7 +201,7 @@ export function typingDuration(
   charsPerFrame: number,
   chunkSize: number,
 ): number {
-  return Math.ceil(textLength / (chunkSize * charsPerFrame));
+  return Math.ceil(Math.ceil(textLength / chunkSize) / charsPerFrame);
 }
 
 /**
@@ -227,9 +227,8 @@ export function computeLineStarts(
 }
 
 /**
- * Chunked reveal: Math.floor of an interpolated count, snapped up to the
- * nearest multiple of `chunkSize`. This is what gives the bursty terminal
- * feel — text doesn't drip, it lurches.
+ * Reveal `chunkSize` characters per step, at `charsPerFrame` steps per frame.
+ * Count whole steps so the reveal and typingDuration use the same clock.
  */
 export function chunkedReveal(
   localFrame: number,
@@ -238,13 +237,8 @@ export function chunkedReveal(
   chunkSize: number,
 ): number {
   if (totalChars <= 0) return 0;
-  const linear = Math.floor(
-    interpolate(localFrame, [0, totalChars / charsPerFrame], [0, totalChars], {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    }),
-  );
-  return Math.min(totalChars, Math.ceil(linear / chunkSize) * chunkSize);
+  const chunks = Math.max(0, Math.floor(localFrame * charsPerFrame));
+  return Math.min(totalChars, chunks * chunkSize);
 }
 
 /**

@@ -52,8 +52,7 @@ export interface TextBuildProps {
 
 const FONT_FAMILY = "-apple-system, BlinkMacSystemFont, sans-serif";
 
-const MEASURE_FONT =
-  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+const LETTER_SPACING = "-0.03em";
 
 /** Per-axis defaults harvested from the two legacy looks. */
 const AXIS_DEFAULTS: Record<
@@ -73,7 +72,7 @@ const AXIS_DEFAULTS: Record<
 
 /**
  * Size of each word along the build axis. On "x" this is the measured text
- * width (canvas measureText, with a `length * fontSize * 0.55` SSR fallback);
+ * width (a styled DOM span, with a `length * fontSize * 0.55` SSR fallback);
  * on "y" every row is one `fontSize` tall.
  */
 function fallbackWordSizes(
@@ -90,14 +89,30 @@ export function measureWordSizes(
   axis: TextBuildAxis,
   fontSize: number,
   fontWeight: number,
+  fontFamily = FONT_FAMILY,
 ): number[] {
   if (axis === "y") return words.map(() => fontSize);
   if (typeof document === "undefined")
     return fallbackWordSizes(words, axis, fontSize);
-  const ctx = document.createElement("canvas").getContext("2d");
-  if (!ctx) return fallbackWordSizes(words, axis, fontSize);
-  ctx.font = `${fontWeight} ${fontSize}px ${MEASURE_FONT}`;
-  return words.map((w) => ctx.measureText(w).width);
+  const span = document.createElement("span");
+  Object.assign(span.style, {
+    position: "absolute",
+    visibility: "hidden",
+    whiteSpace: "nowrap",
+    fontFamily,
+    fontSize: `${fontSize}px`,
+    fontWeight: String(fontWeight),
+    letterSpacing: LETTER_SPACING,
+  });
+  document.body.appendChild(span);
+  try {
+    return words.map((word) => {
+      span.textContent = word;
+      return span.getBoundingClientRect().width;
+    });
+  } finally {
+    span.remove();
+  }
 }
 
 /**
@@ -154,18 +169,18 @@ export function TextBuild({
 
   const words = useMemo(() => text.split(" "), [text]);
 
-  // Canvas text measurement isn't available during SSR, so the first client
+  // DOM text measurement isn't available during SSR, so the first client
   // render must also use the fallback estimate (matching the server-rendered
-  // markup) before upgrading to the precise canvas measurement post-mount —
+  // markup) before upgrading to the precise DOM measurement post-mount —
   // otherwise the two renders disagree and React logs a hydration mismatch.
   const [measured, setMeasured] = useState(false);
   useEffect(() => setMeasured(true), []);
   const sizes = useMemo(
     () =>
       measured
-        ? measureWordSizes(words, axis, fontSize, fontWeight)
+        ? measureWordSizes(words, axis, fontSize, fontWeight, face)
         : fallbackWordSizes(words, axis, fontSize),
-    [measured, words, axis, fontSize, fontWeight],
+    [measured, words, axis, fontSize, fontWeight, face],
   );
   const positionsAt = useMemo(
     () => centeredPositions(sizes, spacing),
@@ -193,7 +208,7 @@ export function TextBuild({
           fontSize,
           fontWeight,
           color: fill,
-          letterSpacing: "-0.03em",
+          letterSpacing: LETTER_SPACING,
           fontFamily: face,
           whiteSpace: "nowrap",
         }}

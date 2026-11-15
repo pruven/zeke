@@ -1,6 +1,14 @@
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import type { Step } from "./types";
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, {
+  granularity: "grapheme",
+});
+
+function textCharacters(text: string): string[] {
+  return Array.from(graphemeSegmenter.segment(text), ({ segment }) => segment);
+}
+
 export function framesFor(
   d: number | { seconds: number },
   fps: number,
@@ -24,8 +32,9 @@ export function clamp01(t: number): number {
 }
 
 export function revealedText(full: string, count: number): string {
-  const c = Math.max(0, Math.min(full.length, Math.floor(count)));
-  return full.slice(0, c);
+  const characters = textCharacters(full);
+  const c = Math.max(0, Math.min(characters.length, Math.floor(count)));
+  return characters.slice(0, c).join("");
 }
 
 export interface TypewriterOptions {
@@ -49,12 +58,13 @@ export function useTypewriter(
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const local = frame * speed - startFrame;
-  const count = local <= 0 ? 0 : revealCount(local, fps, full.length, cps);
+  const characters = textCharacters(full);
+  const count = local <= 0 ? 0 : revealCount(local, fps, characters.length, cps);
   return {
-    text: revealedText(full, count),
+    text: characters.slice(0, count).join(""),
     count,
-    done: count >= full.length,
-    typing: count > 0 && count < full.length,
+    done: count >= characters.length,
+    typing: count > 0 && count < characters.length,
   };
 }
 
