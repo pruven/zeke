@@ -167,7 +167,7 @@ export function TextBuild({
   const spacing = gap ?? defaults.gap;
   const inBlur = entryBlur ?? defaults.entryBlur;
 
-  const words = useMemo(() => text.split(" "), [text]);
+  const words = useMemo(() => text.match(/\S+/g) ?? [], [text]);
 
   // DOM text measurement isn't available during SSR, so the first client
   // render must also use the fallback estimate (matching the server-rendered

@@ -20,9 +20,9 @@ import { loadFont as loadSpaceGrotesk } from "@remotion/google-fonts/SpaceGrotes
  * — the browser preview finds it, the render does not, and the bug is invisible
  * until someone plays the file.
  *
- * So a name only counts as a font here if this module has loaded it. Values map
- * label → the real CSS family string `loadFont` returns, which is not always the
- * label ("Instrument Serif", not "InstrumentSerif").
+ * Accessing a registered name loads that family on demand. Values map label →
+ * the real CSS family string `loadFont` returns, which is not always the label
+ * ("Instrument Serif", not "InstrumentSerif").
  *
  * ## A raw stack still works
  *
@@ -30,37 +30,45 @@ import { loadFont as loadSpaceGrotesk } from "@remotion/google-fonts/SpaceGrotes
  * caller who has loaded their own face — a brand font, a local `@font-face` —
  * names it directly and gets it. The allowlist is the safe path, not the only one.
  *
- * ponytail: all six load at module scope, so a render fetches six latin subsets
- * whether or not the video uses them. Move to a lazy per-family `loadFont()` if
- * bundle time ever shows up in a render trace.
+ * Enumerating names does not load fonts. Reading a family through `FONTS` or
+ * `resolveFont` loads it once, so renders wait only for the families they use.
  */
-export const FONTS: Record<string, string> = {
-  Inter: loadInter("normal", {
+const fontLoaders: Record<string, () => string> = {
+  Inter: () => loadInter("normal", {
     weights: ["400", "500", "600", "700"],
     subsets: ["latin"],
   }).fontFamily,
-  Geist: loadGeist("normal", {
+  Geist: () => loadGeist("normal", {
     weights: ["400", "500", "600", "700"],
     subsets: ["latin"],
   }).fontFamily,
-  "Space Grotesk": loadSpaceGrotesk("normal", {
+  "Space Grotesk": () => loadSpaceGrotesk("normal", {
     weights: ["400", "500", "600", "700"],
     subsets: ["latin"],
   }).fontFamily,
-  Outfit: loadOutfit("normal", {
+  Outfit: () => loadOutfit("normal", {
     weights: ["400", "500", "600", "700"],
     subsets: ["latin"],
   }).fontFamily,
-  Montserrat: loadMontserrat("normal", {
+  Montserrat: () => loadMontserrat("normal", {
     weights: ["400", "500", "600", "700"],
     subsets: ["latin"],
   }).fontFamily,
   // 400 is the only weight this family ships. Asking for 600 throws.
-  "Instrument Serif": loadInstrumentSerif("normal", {
+  "Instrument Serif": () => loadInstrumentSerif("normal", {
     weights: ["400"],
     subsets: ["latin"],
   }).fontFamily,
 };
+
+export const FONTS: Record<string, string> = {};
+for (const [name, load] of Object.entries(fontLoaders)) {
+  let family: string | undefined;
+  Object.defineProperty(FONTS, name, {
+    enumerable: true,
+    get: () => (family ??= load()),
+  });
+}
 
 /**
  * What a select control offers. `DEFAULT_FONT` first: a scene's own face is a
@@ -76,4 +84,6 @@ export const FONT_NAMES = [DEFAULT_FONT, ...Object.keys(FONTS)];
  * that is the signal for "keep the component's own face".
  */
 export const resolveFont = (name?: string): string | undefined =>
-  !name || name === DEFAULT_FONT ? undefined : (FONTS[name] ?? name);
+  !name || name === DEFAULT_FONT
+    ? undefined
+    : Object.hasOwn(FONTS, name) ? FONTS[name] : name;

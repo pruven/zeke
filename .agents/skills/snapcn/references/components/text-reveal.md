@@ -20,7 +20,7 @@ These names came from the pre-consolidation registry and are **not installable**
 
 ## Note
 
-`text-reveal/index.tsx` also exports `TEXT_REVEAL_PRESETS`, `TextRevealPreset` and `resolveTextRevealSettings()` — a preset-driven API carrying the 14 legacy looks. **The shipped `TextReveal` component does not consume any of it**: its signature takes the lead-word props in the table above, and nothing outside the component's own tests calls `resolveTextRevealSettings`. Do not write `<TextReveal preset="blur-out-up" />` — the prop is not read. Reproduce a legacy look with the props above, or wire the resolver into the component first.
+The local `TextReveal` component supports the lead-word animation props listed below. The unused legacy preset/settings API has been removed. Do not pass `preset`, `effects`, or other legacy settings; customize the reveal through its supported props.
 
 ## Props
 

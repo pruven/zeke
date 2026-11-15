@@ -21,8 +21,8 @@
     "bun": ">=1.4.4"
   },
   "scripts": {
-    "video:render": "npm --prefix video run render",
-    "video:studio": "npm --prefix video run studio",
+    "video:render": "bun run --bun --cwd video render",
+    "video:studio": "bun run --bun --cwd video studio",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
