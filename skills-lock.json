@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "skills": {
+    "remotion-motion-graphics": {
+      "source": "shadcn-labs/snapcn",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-motion-graphics/SKILL.md",
+      "computedHash": "f7bbb2515b710a6e6c085729861bdba4371980063fd11b8f12ec1c5af624abc8"
+    },
+    "snapcn": {
+      "source": "shadcn-labs/snapcn",
+      "sourceType": "github",
+      "skillPath": "skills/snapcn/SKILL.md",
+      "computedHash": "c3c676d18374eacb63bf0b0db6fc030fe687ac715502e38f5254d75925e854fc"
+    }
+  }
+}
