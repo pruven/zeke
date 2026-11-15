@@ -1,6 +1,6 @@
 # Zeke video
 
-A 26.4-second, 1280×720, 30fps product demo built with Remotion and SnapCN's `text-build`, `text-reveal`, and `terminal-simulator` components.
+A 22-second, 1280×720, 30fps product film built with Remotion and SnapCN’s `text-reveal` component and a fixed terminal window with separate setup and worktree playback. Warm paper, charcoal, and lime frames pair oversized Space Grotesk headlines with Instrument Serif accents and a moving file-transfer diagram. Scenes use hard cuts, with a stable install card at the end.
 
 From the repository root, install video dependencies once with `bun install --cwd video`, then run `bun run video:studio` or `bun run video:render`.
 
