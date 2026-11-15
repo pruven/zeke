@@ -1,0 +1,23 @@
+# Zeke video
+
+A 26.4-second, 1280×720, 30fps product demo built with Remotion and SnapCN's `text-build`, `text-reveal`, and `terminal-simulator` components.
+
+```sh
+cd video
+bun install
+bun run studio
+bun run check
+bun run render
+```
+
+The rendered video is `out/zeke.mp4`. The composition is in `src/Root.tsx`; the installed SnapCN components remain editable in `src/components/snap-cn/`.
+
+The story positions Zeke as the missing piece for developers using Git worktrees in T3 Code: a fresh worktree is missing its local environment, Zeke fills that gap, and files arrive automatically after a one-time repository setup. The ending pairs “More worktrees. Less setup.” with the install commands. Terminal playback is an illustrative example using the project's real CLI output format and example filenames. It does not read environment values or install Git hooks. The video is silent and ends on a held install card.
+
+SnapCN components were installed with:
+
+```sh
+bunx shadcn@latest add @snapcn/text-reveal @snapcn/text-build @snapcn/terminal-simulator -y
+```
+
+Rendered proof frames are saved alongside the MP4 in `out/`.
