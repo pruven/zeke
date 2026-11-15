@@ -66,7 +66,9 @@ for (const [name, load] of Object.entries(fontLoaders)) {
   let family: string | undefined;
   Object.defineProperty(FONTS, name, {
     enumerable: true,
+    configurable: true,
     get: () => (family ??= load()),
+    set: (value: string) => { family = value; },
   });
 }
 

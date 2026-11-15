@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 
-test("font imports and name enumeration stay lazy; family access loads once", () => {
+test("font access stays lazy and cached while record entries remain replaceable", () => {
   // Isolate mocked font loaders from the other tests and their module caches.
   const result = spawnSync(process.execPath, ["-e", `
     import assert from "node:assert/strict";
@@ -42,6 +42,21 @@ test("font imports and name enumeration stay lazy; family access loads once", ()
     assert.deepEqual(calls[0].options, {weights: ["400", "500", "600", "700"], subsets: ["latin"]});
     assert.deepEqual(calls[1].options, {weights: ["400"], subsets: ["latin"]});
     assert.ok(calls.every(({style}) => style === "normal"));
+
+    // Replacing a loaded family must take effect without calling its loader again.
+    FONTS.Inter = "Custom Inter";
+    assert.equal(FONTS.Inter, "Custom Inter");
+    assert.equal(resolveFont("Inter"), "Custom Inter");
+
+    // Replacing an unloaded family, including with an empty string, stays lazy.
+    FONTS.Geist = "";
+    assert.equal(FONTS.Geist, "");
+    assert.equal(resolveFont("Geist"), "");
+    Object.defineProperty(FONTS, "Outfit", {value: "Custom Outfit", writable: true});
+    assert.equal(resolveFont("Outfit"), "Custom Outfit");
+    assert.equal(delete FONTS.Montserrat, true);
+    assert.equal(resolveFont("Montserrat"), "Montserrat");
+    assert.deepEqual(calls.map(({family}) => family), ["Inter", "Instrument Serif"]);
   `], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8",
