@@ -850,6 +850,7 @@ for (const change of ['replacement', 'symlink', 'edit', 'missing', 'stat failure
       const stat = fs.lstatSync;
       const unlink = fs.unlinkSync;
       let failed = false;
+      let cleanupAttempted = false;
       fs.writeFileSync = function(file, ...args) {
         if (typeof file === 'string' && file.endsWith('.tmp')) {
           failed = true;
@@ -870,18 +871,28 @@ for (const change of ['replacement', 'symlink', 'edit', 'missing', 'stat failure
         return write(file, ...args);
       };
       fs.lstatSync = function(file, ...args) {
-        if (failed && change === 'stat failure' && file === destination) throw new Error('cleanup stat failure');
+        if (failed && change === 'stat failure' && file === destination) {
+          cleanupAttempted = true;
+          throw new Error('cleanup stat failure');
+        }
         return stat(file, ...args);
       };
       fs.unlinkSync = function(file, ...args) {
-        if (failed && change === 'unlink failure' && file === destination) throw new Error('cleanup unlink failure');
+        if (failed && change === 'unlink failure' && file === destination) {
+          cleanupAttempted = true;
+          throw new Error('cleanup unlink failure');
+        }
         return unlink(file, ...args);
       };
       try { run(['sync']); }
       catch (error) { console.error(error.message); process.exitCode = 1; }
+      console.log('cleanup-attempted=' + cleanupAttempted);
     `;
     const result = exec(target, process.execPath, ['--input-type=module', '-e', script], false);
     assert.equal(result.status, 1);
+    if (change === 'stat failure' || change === 'unlink failure') {
+      assert.match(result.stdout, /^cleanup-attempted=true$/m);
+    }
     assert.match(result.stderr, /original baseline failure/);
     assert.doesNotMatch(result.stderr, /cleanup stat failure|cleanup unlink failure|ENOENT|local-secret|source-secret/);
     const destination = path.join(target, '.env');
