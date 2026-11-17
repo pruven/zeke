@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { parseEnv } from 'node:util';
+import { createHash, randomUUID } from 'node:crypto';
 
 export interface Config {
   source: string;
@@ -253,7 +254,7 @@ export function sync({ dryRun = false, verbose = false, all = false } = {}) {
       if (all && (git(['rev-parse', '--show-toplevel'], target).trimEnd() !== fs.realpathSync(target) || git(['rev-parse', '--path-format=absolute', '--git-common-dir'], target).trimEnd() !== ctx.common)) {
         throw new Error('destination must be a worktree of this repository.');
       }
-      syncTarget(target, source, files, ignored, sourceSkipped, dryRun, verbose, total);
+      syncTarget(ctx, target, source, files, ignored, sourceSkipped, dryRun, verbose, total);
     } catch (error) {
       if (!all) throw error;
       failed++;
@@ -265,7 +266,7 @@ export function sync({ dryRun = false, verbose = false, all = false } = {}) {
   return total;
 }
 
-function syncTarget(target: string, source: string, files: string[], ignored: Set<string>, sourceSkipped: { file: string; reason: string }[], dryRun: boolean, verbose: boolean, total: { copied: number; skipped: number }) {
+function syncTarget(ctx: Context, target: string, source: string, files: string[], ignored: Set<string>, sourceSkipped: { file: string; reason: string }[], dryRun: boolean, verbose: boolean, total: { copied: number; skipped: number }) {
   let copied = 0;
   let skipped = 0;
   const skip = (file: string, reason: string) => {
@@ -284,7 +285,19 @@ function syncTarget(target: string, source: string, files: string[], ignored: Se
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (!safeParents(target, relative, dryRun)) { skip(relative, 'destination parent is a symbolic link or not a directory'); continue; }
     if (!dryRun) {
-      try { fs.copyFileSync(path.join(source, relative), destination, fs.constants.COPYFILE_EXCL); }
+      try {
+        const original = path.join(source, relative);
+        const contents = fs.readFileSync(original);
+        const sourceMode = fs.statSync(original).mode & 0o777;
+        const fd = fs.openSync(destination, 'wx', sourceMode);
+        let mode: number;
+        try {
+          fs.writeFileSync(fd, contents);
+          fs.fchmodSync(fd, sourceMode);
+          mode = fs.fstatSync(fd).mode & 0o777;
+        } finally { fs.closeSync(fd); }
+        saveBaseline(ctx, target, relative, contents, mode);
+      }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { skip(relative, 'destination already exists'); continue; } throw error; }
     }
     copied++;
@@ -293,6 +306,168 @@ function syncTarget(target: string, source: string, files: string[], ignored: Se
   }
   console.log(`zeke: ${copied} ${dryRun ? 'to copy' : 'copied'}, ${skipped} skipped.`);
   return { copied, skipped };
+}
+
+interface Baseline {
+  version: 1;
+  file: string;
+  hash: string;
+  mode: number;
+}
+const digest = (contents: string | Buffer) => createHash('sha256').update(contents).digest('hex');
+const trackingDirectory = (ctx: Context, target: string) =>
+  path.join(ctx.common, 'zeke-data', 'worktrees', digest(fs.realpathSync(target)));
+const baselinePath = (ctx: Context, target: string, file: string) =>
+  path.join(trackingDirectory(ctx, target), 'files', `${digest(file)}.json`);
+
+// Metadata and backups are private and separate from the uninstallable runtime.
+// Reject symlinks in this tree before reading or writing any records.
+function privateDirectory(common: string, directory: string, create: boolean): boolean {
+  let current = common;
+  for (const part of path.relative(common, directory).split(path.sep)) {
+    current = path.join(current, part);
+    try {
+      const stat = fs.lstatSync(current);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Unsafe Zeke tracking directory. Restore its real directory before retrying.');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      if (!create) return false;
+      try { fs.mkdirSync(current, { mode: 0o700 }); }
+      catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST' || !fs.lstatSync(current).isDirectory() || fs.lstatSync(current).isSymbolicLink()) throw mkdirError;
+      }
+    }
+  }
+  return true;
+}
+
+function saveBaseline(ctx: Context, target: string, file: string, contents: Buffer, mode: number) {
+  const record = baselinePath(ctx, target, file);
+  privateDirectory(ctx.common, path.dirname(record), true);
+  const temporary = `${record}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify({ version: 1, file, hash: digest(contents), mode } satisfies Baseline), { flag: 'wx', mode: 0o600 });
+    fs.renameSync(temporary, record);
+  } finally { fs.rmSync(temporary, { force: true }); }
+}
+
+function readBaseline(ctx: Context, target: string, file: string): Baseline | null {
+  const record = baselinePath(ctx, target, file);
+  if (!privateDirectory(ctx.common, path.dirname(record), false)) return null;
+  try {
+    if (!fs.lstatSync(record).isFile()) throw new Error();
+    const value = JSON.parse(fs.readFileSync(record, 'utf8')) as Baseline;
+    if (value.version !== 1 || value.file !== file || !/^[a-f0-9]{64}$/.test(value.hash) ||
+        !Number.isInteger(value.mode) || value.mode < 0 || value.mode > 0o777) throw new Error();
+    return value;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`Invalid or unreadable copy record for ${JSON.stringify(file)}. Preserve the file and tracking record; refresh cannot safely infer its original contents.`);
+  }
+}
+
+export function refresh({ dryRun = false } = {}) {
+  const ctx = context();
+  const projectRoot = mainWorktree(ctx.root);
+  let config: Config;
+  try { config = readConfig(projectRoot); }
+  catch { throw new Error('Invalid or unreadable zeke.config.json. Run zeke doctor for repair instructions.'); }
+  let source: string;
+  try { source = sourceAt(ctx, projectRoot, config); }
+  catch { throw new Error('Source is unavailable or is not a worktree of this repository. Run zeke doctor for repair instructions.'); }
+  const total = { refreshed: 0, unchanged: 0, skipped: 0 };
+  const summary = () => console.log(`zeke: refresh: ${total.refreshed} ${dryRun ? 'to refresh' : 'refreshed'}, ${total.unchanged} unchanged, ${total.skipped} skipped.`);
+  if (source === fs.realpathSync(ctx.root)) { summary(); return total; }
+  const directory = trackingDirectory(ctx, ctx.root);
+  const lock = path.join(directory, 'refresh.lock');
+  if (!dryRun) {
+    privateDirectory(ctx.common, directory, true);
+    try { fs.mkdirSync(lock, { mode: 0o700 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      throw new Error(`Refresh is locked. Wait for the other refresh to finish. If it was interrupted, remove ${JSON.stringify(lock)} after confirming no refresh is running.`);
+    }
+  }
+  const skip = (file: string, reason: string) => {
+    total.skipped++;
+    console.log(`zeke: skipped ${JSON.stringify(file)} (${reason})`);
+  };
+  let backups: string | undefined;
+  try {
+    const files = candidates(source, config, (file, reason) => {
+      if (reason !== 'excluded by configuration') skip(file, reason);
+    });
+    for (const relative of files.sort()) {
+      if (!safeParents(ctx.root, relative, true)) { skip(relative, 'destination parent is a symbolic link or not a directory'); continue; }
+      if (git(['check-ignore', '-q', '--', relative], source, { optional: true }) === null ||
+          git(['check-ignore', '-q', '--', relative], ctx.root, { optional: true }) === null) {
+        skip(relative, 'tracked or not ignored in source or destination'); continue;
+      }
+      const destination = path.join(ctx.root, relative);
+      let stat: fs.Stats;
+      try { stat = fs.lstatSync(destination); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        skip(relative, 'destination is missing; run zeke sync to copy it'); continue;
+      }
+      if (!stat.isFile()) { skip(relative, 'destination is not a regular file'); continue; }
+      const baseline = readBaseline(ctx, ctx.root, relative);
+      if (!baseline) { skip(relative, 'no recorded Zeke copy; existing and legacy files are preserved'); continue; }
+      const current = fs.readFileSync(destination);
+      if (digest(current) !== baseline.hash || (stat.mode & 0o777) !== baseline.mode) {
+        skip(relative, 'locally modified since the last Zeke copy'); continue;
+      }
+      const original = path.join(source, relative);
+      // Recheck source type before reading; never follow a source symlink.
+      const fd = fs.openSync(original, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      let contents: Buffer;
+      try {
+        if (!fs.fstatSync(fd).isFile()) { skip(relative, 'source is not a regular file'); continue; }
+        contents = fs.readFileSync(fd);
+      } finally { fs.closeSync(fd); }
+      if (contents.equals(current)) { total.unchanged++; continue; }
+      if (dryRun) {
+        total.refreshed++;
+        console.log(`zeke: would refresh ${JSON.stringify(relative)} (backup will be saved before replacement)`);
+        continue;
+      }
+      if (!backups) {
+        const parent = path.join(directory, 'backups');
+        privateDirectory(ctx.common, parent, true);
+        backups = fs.mkdtempSync(path.join(parent, 'refresh-'));
+      }
+      const backup = path.join(backups, relative);
+      privateDirectory(ctx.common, path.dirname(backup), true);
+      // Save and flush the exact previous bytes before attempting replacement.
+      const backupFd = fs.openSync(backup, 'wx', baseline.mode);
+      try { fs.writeFileSync(backupFd, current); fs.fsyncSync(backupFd); }
+      finally { fs.closeSync(backupFd); }
+      console.log(`zeke: backup ${JSON.stringify(relative)} saved to ${JSON.stringify(backup)}`);
+      const temporary = path.join(path.dirname(destination), `.zeke-refresh-${randomUUID()}`);
+      try {
+        const temporaryFd = fs.openSync(temporary, 'wx', baseline.mode);
+        try {
+          fs.writeFileSync(temporaryFd, contents);
+          fs.fchmodSync(temporaryFd, baseline.mode);
+          fs.fsyncSync(temporaryFd);
+        } finally { fs.closeSync(temporaryFd); }
+        // Catch edits and editor atomic saves made while preparing the backup.
+        const latest = fs.lstatSync(destination);
+        if (!safeParents(ctx.root, relative, true) || !latest.isFile() || latest.ino !== stat.ino || latest.dev !== stat.dev ||
+            (latest.mode & 0o777) !== baseline.mode || digest(fs.readFileSync(destination)) !== baseline.hash) {
+          skip(relative, 'destination changed during refresh; backup retained'); continue;
+        }
+        fs.renameSync(temporary, destination);
+        saveBaseline(ctx, ctx.root, relative, contents, baseline.mode);
+      } finally { fs.rmSync(temporary, { force: true }); }
+      total.refreshed++;
+      console.log(`zeke: refreshed ${JSON.stringify(relative)}`);
+    }
+  } finally {
+    if (!dryRun) fs.rmdirSync(lock);
+  }
+  summary();
+  return total;
 }
 
 // Diagnostics deliberately avoid echoing parser errors or file contents: a
@@ -440,10 +615,11 @@ export function run(args: string[]): void {
     return;
   }
   if (!command || command === '--help' || command === '-h' || command === 'help') {
-    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [options]   Copy missing ignored files into this worktree\n    --all          Sync all worktrees from the configured source\n    --dry-run      Preview copies without writing files\n    --verbose      Show skipped paths and reasons\n  status           Show installation, hook runtime, and source configuration\n  doctor           Diagnose setup problems and show repair instructions\n  diff             Report drift from source without displaying values\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git 2.36+. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
+    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [options]   Copy missing ignored files into this worktree\n    --all          Sync all worktrees from the configured source\n    --dry-run      Preview copies without writing files\n    --verbose      Show skipped paths and reasons\n  refresh [--dry-run] Update unedited Zeke copies, saving backups\n  status           Show installation, hook runtime, and source configuration\n  doctor           Diagnose setup problems and show repair instructions\n  diff             Report drift from source without displaying values\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git 2.36+. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
     return;
   }
-  if (flags.some(flag => command !== 'sync' || !['--dry-run', '--verbose', '--all'].includes(flag))) throw new Error('Unknown option. Run zeke --help.');
+  const allowed = command === 'sync' ? ['--dry-run', '--verbose', '--all'] : command === 'refresh' ? ['--dry-run'] : [];
+  if (flags.some(flag => !allowed.includes(flag))) throw new Error('Unknown option. Run zeke --help.');
   switch (command) {
     case 'init': {
       const ctx = context();
@@ -455,6 +631,7 @@ export function run(args: string[]): void {
     }
     case 'install': install(); break;
     case 'sync': sync({ dryRun: flags.includes('--dry-run'), verbose: flags.includes('--verbose'), all: flags.includes('--all') }); break;
+    case 'refresh': if (refresh({ dryRun: flags.includes('--dry-run') }).skipped) process.exitCode = 1; break;
     case 'doctor': if (doctor()) process.exitCode = 1; break;
     case 'diff': if (diff()) process.exitCode = 1; break;
     case 'uninstall': uninstall(); break;

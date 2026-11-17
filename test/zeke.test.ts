@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const cli = fileURLToPath(new URL('../bin/zeke.js', import.meta.url));
 const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Zeke Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Zeke Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' };
@@ -581,4 +582,214 @@ test('reinstall repairs runtime files and nonexecutable dispatchers diagnosed by
   assert.equal(exec(f.root, process.execPath, [cli, 'doctor'], false).status, 1);
   zeke(f.root, 'install');
   assert.match(zeke(f.root, 'doctor').stdout, /all checks passed/);
+});
+
+const tracking = (root: string, target: string) => path.join(root, '.git/zeke-data/worktrees', createHash('sha256').update(fs.realpathSync(target)).digest('hex'));
+function backups(root: string): string[] {
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile()).map(entry => path.join(entry.parentPath, entry.name));
+}
+
+test('refresh previews without writes, backs up old bytes, and advances the copy baseline', t => {
+  const f = fixture(t);
+  write(f.root, 'apps/api/.env', 'TOKEN=original-secret\n', 0o600);
+  const target = f.worktree();
+  zeke(target, 'sync');
+  const records = tracking(f.root, target);
+  const record = backups(path.join(records, 'files'))[0];
+  const before = fs.readFileSync(record, 'utf8');
+  assert.doesNotMatch(before, /original-secret/);
+  write(f.root, 'apps/api/.env', 'TOKEN=updated-secret\n');
+  const preview = zeke(target, 'refresh', '--dry-run');
+  assert.match(preview.stdout, /would refresh "apps\/api\/\.env"/);
+  assert.match(preview.stdout, /1 to refresh/);
+  assert.doesNotMatch(preview.stdout + preview.stderr, /original-secret|updated-secret/);
+  assert.equal(fs.readFileSync(path.join(target, 'apps/api/.env'), 'utf8'), 'TOKEN=original-secret\n');
+  assert.equal(fs.readFileSync(record, 'utf8'), before);
+  assert.equal(fs.existsSync(path.join(records, 'backups')), false);
+  assert.equal(fs.existsSync(path.join(records, 'refresh.lock')), false);
+  const applied = zeke(target, 'refresh');
+  assert.match(applied.stdout, /1 refreshed/);
+  const saved = backups(path.join(records, 'backups'));
+  assert.equal(saved.length, 1);
+  assert.equal(fs.readFileSync(saved[0], 'utf8'), 'TOKEN=original-secret\n');
+  assert.ok(applied.stdout.includes(JSON.stringify(saved[0])));
+  assert.equal(fs.readFileSync(path.join(target, 'apps/api/.env'), 'utf8'), 'TOKEN=updated-secret\n');
+  assert.equal(fs.statSync(path.join(target, 'apps/api/.env')).mode & 0o777, 0o600);
+  assert.doesNotMatch(applied.stdout + applied.stderr, /original-secret|updated-secret/);
+  assert.match(zeke(target, 'refresh').stdout, /0 refreshed, 1 unchanged/);
+  assert.equal(backups(path.join(records, 'backups')).length, 1);
+  write(f.root, 'apps/api/.env', 'TOKEN=third-secret\n');
+  zeke(target, 'refresh');
+  assert.equal(backups(path.join(records, 'backups')).length, 2);
+  assert.deepEqual(backups(path.join(records, 'backups')).map(file => fs.readFileSync(file, 'utf8')).sort(), ['TOKEN=original-secret\n', 'TOKEN=updated-secret\n']);
+});
+
+test('refresh preserves local content and permission edits, preexisting files and deleted files', t => {
+  const f = fixture(t);
+  for (const file of ['.env', '.env.local', '.env.preexisting', '.env.deleted']) write(f.root, file, 'TOKEN=original\n', 0o600);
+  const target = f.worktree();
+  write(target, '.env.preexisting', 'TOKEN=original\n');
+  zeke(target, 'sync');
+  write(target, '.env', 'TOKEN=local-secret\n');
+  fs.chmodSync(path.join(target, '.env.local'), 0o644);
+  fs.unlinkSync(path.join(target, '.env.deleted'));
+  for (const file of ['.env', '.env.local', '.env.preexisting', '.env.deleted']) write(f.root, file, 'TOKEN=new-source\n');
+  for (const flags of [['--dry-run'], []]) {
+    const result = exec(target, process.execPath, [cli, 'refresh', ...flags], false);
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /locally modified/);
+    assert.match(result.stdout, /no recorded Zeke copy/);
+    assert.match(result.stdout, /destination is missing; run zeke sync/);
+    assert.match(result.stdout, /0 (?:to refresh|refreshed), 0 unchanged, 4 skipped/);
+    assert.doesNotMatch(result.stdout + result.stderr, /local-secret|new-source/);
+  }
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=local-secret\n');
+  assert.equal(fs.readFileSync(path.join(target, '.env.preexisting'), 'utf8'), 'TOKEN=original\n');
+  assert.equal(fs.statSync(path.join(target, '.env.local')).mode & 0o777, 0o644);
+  assert.equal(fs.existsSync(path.join(target, '.env.deleted')), false);
+  assert.equal(fs.existsSync(path.join(tracking(f.root, target), 'backups')), false);
+});
+
+test('refresh refuses legacy copies and corrupt records without adopting local contents', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'TOKEN=original');
+  const target = f.worktree();
+  // A dry-run sync must not establish a baseline or create tracking directories.
+  zeke(target, 'sync', '--dry-run');
+  assert.equal(fs.existsSync(path.join(f.root, '.git/zeke-data')), false);
+  zeke(target, 'sync');
+  const record = backups(path.join(tracking(f.root, target), 'files'))[0];
+  const saved = fs.readFileSync(record, 'utf8');
+  fs.unlinkSync(record);
+  write(f.root, '.env', 'TOKEN=new-source');
+  const legacy = exec(target, process.execPath, [cli, 'refresh', '--dry-run'], false);
+  assert.equal(legacy.status, 1);
+  assert.match(legacy.stdout, /no recorded Zeke copy/);
+  assert.equal(fs.existsSync(record), false);
+  fs.writeFileSync(record, '{"SECRET":"do-not-print",broken');
+  const broken = exec(target, process.execPath, [cli, 'refresh'], false);
+  assert.equal(broken.status, 1);
+  assert.match(broken.stderr, /Invalid or unreadable copy record/);
+  assert.doesNotMatch(broken.stdout + broken.stderr, /do-not-print|new-source/);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=original');
+  assert.equal(fs.existsSync(path.join(tracking(f.root, target), 'refresh.lock')), false);
+  fs.writeFileSync(record, saved);
+  zeke(target, 'refresh');
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=new-source');
+});
+
+test('automatic copies and sync --all record separate refresh baselines for each worktree', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'TOKEN=original');
+  zeke(f.root, 'install');
+  const first = f.worktree('first');
+  const second = f.worktree('second');
+  const third = f.worktree('third');
+  fs.unlinkSync(path.join(third, '.env'));
+  fs.rmSync(tracking(f.root, third), { recursive: true });
+  write(first, '.env', 'TOKEN=first-local');
+  write(f.root, '.env', 'TOKEN=new-source');
+  zeke(f.root, 'sync', '--all');
+  assert.equal(exec(first, process.execPath, [cli, 'refresh'], false).status, 1);
+  zeke(second, 'refresh');
+  assert.match(zeke(third, 'refresh').stdout, /1 unchanged/);
+  assert.equal(fs.readFileSync(path.join(first, '.env'), 'utf8'), 'TOKEN=first-local');
+  assert.equal(fs.readFileSync(path.join(second, '.env'), 'utf8'), 'TOKEN=new-source');
+  const saved = backups(path.join(tracking(f.root, second), 'backups'));
+  zeke(f.root, 'uninstall');
+  assert.equal(fs.readFileSync(saved[0], 'utf8'), 'TOKEN=original');
+  write(f.root, '.env', 'TOKEN=after-uninstall');
+  zeke(second, 'refresh');
+  assert.equal(fs.readFileSync(path.join(second, '.env'), 'utf8'), 'TOKEN=after-uninstall');
+});
+
+test('refresh respects source config, exclusions, ignore rules, and symlink safety', t => {
+  const f = fixture(t);
+  const source = f.worktree('source');
+  const target = f.worktree('target');
+  write(f.root, 'zeke.config.json', JSON.stringify({ source: '../source' }));
+  for (const file of ['.env', '.env.local', 'apps/.env', '.env.excluded']) write(source, file, 'TOKEN=original');
+  zeke(target, 'sync');
+  for (const file of ['.env', '.env.local', 'apps/.env', '.env.excluded']) write(source, file, 'TOKEN=new-source');
+  write(f.root, 'zeke.config.json', JSON.stringify({ source: '../source', exclude: ['**/.env.example', '**/.env.excluded'] }));
+  write(target, '.gitignore', '.env\napps/\n.env.excluded\n');
+  fs.unlinkSync(path.join(target, '.env'));
+  fs.symlinkSync(path.join(source, '.env'), path.join(target, '.env'));
+  fs.rmSync(path.join(target, 'apps'), { recursive: true });
+  fs.symlinkSync(f.temp, path.join(target, 'apps'));
+  fs.symlinkSync(path.join(source, '.env'), path.join(source, '.env.link'));
+  const result = exec(target, process.execPath, [cli, 'refresh'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /source is a symbolic link/);
+  assert.match(result.stdout, /destination is not a regular file/);
+  assert.match(result.stdout, /destination parent is a symbolic link/);
+  assert.match(result.stdout, /tracked or not ignored/);
+  assert.equal(fs.readFileSync(path.join(target, '.env.local'), 'utf8'), 'TOKEN=original');
+  assert.equal(fs.readFileSync(path.join(target, '.env.excluded'), 'utf8'), 'TOKEN=original');
+  assert.equal(fs.existsSync(path.join(f.temp, '.env')), false);
+  assert.match(zeke(source, 'refresh').stdout, /0 refreshed/);
+});
+
+test('refresh fails before overwriting when backups cannot be stored', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'TOKEN=original');
+  const target = f.worktree();
+  zeke(target, 'sync');
+  write(f.root, '.env', 'TOKEN=new-source');
+  fs.writeFileSync(path.join(tracking(f.root, target), 'backups'), 'blocked');
+  const result = exec(target, process.execPath, [cli, 'refresh'], false);
+  assert.equal(result.status, 1);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=original');
+  assert.equal(fs.existsSync(path.join(tracking(f.root, target), 'refresh.lock')), false);
+});
+
+test('refresh rechecks local edits made while saving a backup', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'TOKEN=original');
+  const target = f.worktree();
+  zeke(target, 'sync');
+  write(f.root, '.env', 'TOKEN=new-source');
+  const moduleUrl = new URL('../lib/zeke.js', import.meta.url).href;
+  const script = `
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import { run } from ${JSON.stringify(moduleUrl)};
+    const flush = fs.fsyncSync;
+    let edited = false;
+    fs.fsyncSync = function(fd) {
+      flush(fd);
+      if (!edited) {
+        edited = true;
+        fs.writeFileSync(path.join(process.cwd(), '.env'), 'TOKEN=concurrent-local-secret');
+      }
+    };
+    run(['refresh']);
+  `;
+  const result = exec(target, process.execPath, ['--input-type=module', '-e', script], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /destination changed during refresh; backup retained/);
+  assert.doesNotMatch(result.stdout + result.stderr, /concurrent-local-secret|new-source/);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=concurrent-local-secret');
+  const saved = backups(path.join(tracking(f.root, target), 'backups'));
+  assert.equal(saved.length, 1);
+  assert.equal(fs.readFileSync(saved[0], 'utf8'), 'TOKEN=original');
+  assert.equal(fs.readdirSync(target).some(file => file.startsWith('.zeke-refresh-')), false);
+});
+
+test('refresh refuses a concurrent or interrupted lock and preview leaves it untouched', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'TOKEN=original');
+  const target = f.worktree();
+  zeke(target, 'sync');
+  write(f.root, '.env', 'TOKEN=new-source');
+  const lock = path.join(tracking(f.root, target), 'refresh.lock');
+  fs.mkdirSync(lock);
+  const result = exec(target, process.execPath, [cli, 'refresh'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Refresh is locked.*no refresh is running/);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=original');
+  assert.match(zeke(target, 'refresh', '--dry-run').stdout, /would refresh/);
+  assert.equal(fs.existsSync(lock), true);
 });
