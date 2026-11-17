@@ -13,13 +13,11 @@ export default defineConfig({
   ],
   themeConfig: {
     nav: [
-      // This link opens the whole guide; section links carry their own active state.
-      { text: 'Guide', link: '/', activeMatch: '(?!)' },
-      { text: 'Commands', link: '/#commands' },
-      { text: 'Configuration', link: '/#configuration' },
+      { text: 'Guide', link: '/' },
+      { text: 'Reference', link: '/reference' },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/pruven/zeke' }],
-    outline: { level: [2, 3], label: 'In this guide' },
+    outline: { level: [2, 3], label: 'On this page' },
     search: { provider: 'local' },
     footer: { message: 'Zeke · Released under the MIT License.' },
   },

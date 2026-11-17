@@ -25,7 +25,7 @@ zeke: copied "apps/api/.env.local"</span></code></pre>
     <div class="intro-facts"><span>Missing files only</span><span>Nested folders preserved</span><span>No file contents logged</span></div>
   </header>
   <nav class="guide-shortcuts" aria-label="Guide shortcuts">
-    <a class="card" href="#commands"><span class="shortcut-index">01 <span aria-hidden="true">↗</span></span><strong>Commands</strong><span>Every command, at a glance.</span></a>
+    <a class="card" href="#commands"><span class="shortcut-index">01 <span aria-hidden="true">↗</span></span><strong>Commands</strong><span>The commands you’ll use most.</span></a>
     <a class="card" href="#configuration"><span class="shortcut-index">02 <span aria-hidden="true">↗</span></span><strong>Configuration</strong><span>Choose the files to copy.</span></a>
     <a class="card" href="#copy-behavior"><span class="shortcut-index">03 <span aria-hidden="true">↗</span></span><strong>Copy behavior</strong><span>Know what stays untouched.</span></a>
   </nav>
