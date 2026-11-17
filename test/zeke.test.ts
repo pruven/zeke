@@ -793,3 +793,43 @@ test('refresh refuses a concurrent or interrupted lock and preview leaves it unt
   assert.match(zeke(target, 'refresh', '--dry-run').stdout, /would refresh/);
   assert.equal(fs.existsSync(lock), true);
 });
+
+for (const failure of ['write', 'permissions', 'baseline']) {
+  test(`failed sync ${failure} removes the new destination so retry can track and refresh it`, t => {
+    const f = fixture(t);
+    write(f.root, '.env', 'TOKEN=original-secret', 0o600);
+    const target = f.worktree();
+    const moduleUrl = new URL('../lib/zeke.js', import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { run } from ${JSON.stringify(moduleUrl)};
+      const failure = ${JSON.stringify(failure)};
+      const write = fs.writeFileSync;
+      fs.writeFileSync = function(file, ...args) {
+        if (failure === 'write' && typeof file === 'number') {
+          write(file, 'partial');
+          throw Object.assign(new Error('injected write failure'), { code: 'ENOSPC' });
+        }
+        if (failure === 'baseline' && typeof file === 'string' && file.endsWith('.tmp')) {
+          // EEXIST here must fail the copy, not masquerade as an existing destination.
+          throw Object.assign(new Error('injected baseline failure'), { code: 'EEXIST' });
+        }
+        return write(file, ...args);
+      };
+      if (failure === 'permissions') fs.fchmodSync = function() { throw new Error('injected permissions failure'); };
+      try { run(['sync']); }
+      catch (error) { console.error(error.message); process.exitCode = 1; }
+    `;
+    const result = exec(target, process.execPath, ['--input-type=module', '-e', script], false);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`injected ${failure} failure`));
+    assert.equal(fs.existsSync(path.join(target, '.env')), false);
+    assert.equal(backups(path.join(tracking(f.root, target), 'files')).length, 0);
+    zeke(target, 'sync');
+    assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=original-secret');
+    assert.equal(backups(path.join(tracking(f.root, target), 'files')).length, 1);
+    write(f.root, '.env', 'TOKEN=updated-secret');
+    zeke(target, 'refresh');
+    assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=updated-secret');
+  });
+}
