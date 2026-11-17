@@ -443,3 +443,142 @@ test('refuses to run with a Git older than 2.36 and shows a clear message', t =>
   assert.match(result.stderr, /Git 2\.34\.1 is too old\. Zeke requires Git 2\.36 or newer\./);
   assert.doesNotMatch(result.stderr, /usage:/);
 });
+
+test('doctor reports healthy setup without modifying installation', t => {
+  const f = fixture(t);
+  zeke(f.root, 'install');
+  const state = path.join(f.root, '.git/zeke/state.json');
+  const before = fs.readFileSync(state, 'utf8');
+  assert.match(zeke(f.root, 'doctor').stdout, /all checks passed/);
+  assert.match(zeke(f.worktree(), 'doctor').stdout, /all checks passed/);
+  assert.equal(fs.readFileSync(state, 'utf8'), before);
+});
+
+test('doctor reports runtime, hook conflicts, source and config problems with repairs', t => {
+  const f = fixture(t);
+  zeke(f.root, 'install');
+  const statePath = path.join(f.root, '.git/zeke/state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.runtime.executable = path.join(f.temp, 'deleted-node');
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  fs.unlinkSync(path.join(f.root, '.git/zeke/runtime/hook.js'));
+  fs.chmodSync(path.join(f.root, '.git/zeke/hooks/post-checkout'), 0o644);
+  git(f.root, 'config', '--local', 'core.hooksPath', '.husky/_');
+  write(f.root, 'zeke.config.json', JSON.stringify({ source: '../deleted-source' }));
+  const result = exec(f.root, process.execPath, [cli, 'doctor'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /another hook manager/);
+  assert.match(result.stdout, /recorded Node\/Bun executable/);
+  assert.match(result.stdout, /runtime file "hook.js"/);
+  assert.match(result.stdout, /Hook dispatchers/);
+  assert.match(result.stdout, /configured source is missing/);
+  assert.match(result.stdout, /Repair:.*zeke install/);
+  assert.equal(git(f.root, 'config', '--get', 'core.hooksPath').stdout.trim(), '.husky/_');
+  write(f.root, 'zeke.config.json', '{"password":"DO_NOT_PRINT_SECRET",broken');
+  const invalid = exec(f.root, process.execPath, [cli, 'doctor'], false);
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stdout, /config.json is unavailable or invalid/);
+  assert.doesNotMatch(invalid.stdout + invalid.stderr, /DO_NOT_PRINT_SECRET/);
+});
+
+test('doctor handles absent and corrupt installation state', t => {
+  const f = fixture(t);
+  const absent = exec(f.root, process.execPath, [cli, 'doctor'], false);
+  assert.equal(absent.status, 1);
+  assert.match(absent.stdout, /not installed/);
+  zeke(f.root, 'install');
+  const statePath = path.join(f.root, '.git/zeke/state.json');
+  fs.unlinkSync(statePath);
+  assert.match(exec(f.root, process.execPath, [cli, 'doctor'], false).stdout, /installation state is missing/);
+  fs.writeFileSync(statePath, '{SECRET=do-not-echo');
+  const invalid = exec(f.root, process.execPath, [cli, 'doctor'], false);
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stdout, /state is invalid/);
+  assert.doesNotMatch(invalid.stdout + invalid.stderr, /do-not-echo/);
+});
+
+test('doctor detects worktree-scoped overrides and unrelated sources', t => {
+  const f = fixture(t);
+  zeke(f.root, 'install');
+  const target = f.worktree();
+  git(f.root, 'config', 'extensions.worktreeConfig', 'true');
+  git(target, 'config', '--worktree', 'core.hooksPath', '.other-hooks');
+  write(f.root, 'zeke.config.json', JSON.stringify({ source: f.temp }));
+  const result = exec(target, process.execPath, [cli, 'doctor'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /git config --worktree --unset-all core.hooksPath/);
+  assert.match(result.stdout, /not a worktree of this repository/);
+});
+
+test('diff reports missing files, differing files and missing names without values or writes', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'export TOKEN=source-secret\nEMPTY=\nMULTILINE="first\nFAKE=inside-value\nlast"\n');
+  write(f.root, 'apps/api/.env.local', 'NESTED=nested-secret\n');
+  const target = f.worktree();
+  write(target, '.env', 'TOKEN=target-secret\nEXTRA=extra-secret\n');
+  const before = fs.readFileSync(path.join(target, '.env'), 'utf8');
+  const result = exec(target, process.execPath, [cli, 'diff'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /missing file "apps\/api\/\.env.local"/);
+  assert.match(result.stdout, /differing file "\.env"/);
+  assert.match(result.stdout, /missing variable "EMPTY"/);
+  assert.match(result.stdout, /missing variable "MULTILINE"/);
+  assert.doesNotMatch(result.stdout + result.stderr, /source-secret|target-secret|nested-secret|extra-secret|FAKE|inside-value/);
+  assert.match(result.stdout, /1 missing file\(s\), 1 differing file\(s\), 2 missing variable\(s\)/);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), before);
+  assert.equal(fs.existsSync(path.join(target, 'apps')), false);
+  assert.match(zeke(f.root, 'diff').stdout, /0 missing file\(s\), 0 differing/);
+  write(target, '.env', fs.readFileSync(path.join(f.root, '.env'), 'utf8'));
+  zeke(target, 'sync');
+  assert.match(zeke(target, 'diff').stdout, /0 missing file\(s\), 0 differing/);
+});
+
+test('diff respects configured sources, exclusions, ignore rules and symlinks', t => {
+  const f = fixture(t);
+  const source = f.worktree('source');
+  const target = f.worktree('target');
+  write(f.root, 'zeke.config.json', JSON.stringify({ source: '../source', copy: ['**/.env*', 'local.json'] }));
+  write(source, '.env', 'TOKEN=secret');
+  write(source, '.env.local', 'TOKEN=secret');
+  write(source, 'local.json', '{"secret":"unignored-secret"}');
+  write(source, 'apps/.env', 'TOKEN=secret');
+  fs.symlinkSync(path.join(source, '.env'), path.join(source, '.env.link'));
+  fs.symlinkSync(f.temp, path.join(target, 'apps'));
+  fs.symlinkSync(path.join(source, '.env'), path.join(target, '.env'));
+  write(target, '.gitignore', '.env\napps/\n');
+  const result = exec(target, process.execPath, [cli, 'diff'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /source is a symbolic link/);
+  assert.match(result.stdout, /destination is not a regular file/);
+  assert.match(result.stdout, /destination parent is a symbolic link/);
+  assert.match(result.stdout, /tracked or not ignored/);
+  assert.doesNotMatch(result.stdout + result.stderr, /TOKEN=|unignored-secret|missing file "\.env.example"/);
+  assert.equal(fs.lstatSync(path.join(target, '.env')).isSymbolicLink(), true);
+});
+
+test('diff compares custom files as bytes and reports value-only drift without variable names', t => {
+  const f = fixture(t);
+  write(f.root, 'zeke.config.json', JSON.stringify({ copy: ['**/.env', 'local.json'] }));
+  write(f.root, '.gitignore', '.env\nlocal.json\n');
+  git(f.root, 'add', '.gitignore');
+  git(f.root, 'commit', '-m', 'ignore local json');
+  write(f.root, '.env', 'KEY=source-secret\n');
+  write(f.root, 'local.json', '{"password":"source-secret"}');
+  const target = f.worktree();
+  write(target, '.env', 'KEY=target-secret\n');
+  write(target, 'local.json', '{"password":"target-secret"}');
+  const result = exec(target, process.execPath, [cli, 'diff'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /2 differing file\(s\), 0 missing variable/);
+  assert.doesNotMatch(result.stdout + result.stderr, /source-secret|target-secret|password/);
+});
+
+test('reinstall repairs runtime files and nonexecutable dispatchers diagnosed by doctor', t => {
+  const f = fixture(t);
+  zeke(f.root, 'install');
+  fs.unlinkSync(path.join(f.root, '.git/zeke/runtime/zeke.js'));
+  fs.chmodSync(path.join(f.root, '.git/zeke/hooks/post-checkout'), 0o644);
+  assert.equal(exec(f.root, process.execPath, [cli, 'doctor'], false).status, 1);
+  zeke(f.root, 'install');
+  assert.match(zeke(f.root, 'doctor').stdout, /all checks passed/);
+});
