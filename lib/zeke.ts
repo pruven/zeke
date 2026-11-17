@@ -89,11 +89,18 @@ function context(): Context {
   return { root, common, directory: path.join(common, 'zeke'), hooks: path.join(common, 'zeke', 'hooks') };
 }
 
-function mainWorktree(root: string): string {
+function worktrees(root: string): { root: string; bare: boolean }[] {
   const records = git(['worktree', 'list', '--porcelain', '-z'], root).split('\0\0');
-  const record = records.find(item => item.startsWith('worktree ') && !item.split('\0').includes('bare'));
-  if (!record) throw new Error('No source worktree found.');
-  return record.split('\0')[0].slice('worktree '.length);
+  return records.filter(item => item.startsWith('worktree ')).map(item => ({
+    root: item.split('\0')[0].slice('worktree '.length),
+    bare: item.split('\0').includes('bare'),
+  }));
+}
+
+function mainWorktree(root: string): string {
+  const main = worktrees(root).find(item => !item.bare);
+  if (!main) throw new Error('No source worktree found.');
+  return main.root;
 }
 
 function readConfig(projectRoot: string): Config {
@@ -171,16 +178,24 @@ export function uninstall() {
   console.log('zeke: uninstalled; previous hooks configuration restored. Copied files and project config kept.');
 }
 
-function candidates(source: string, config: Config, prefix = ''): string[] {
+function candidates(source: string, config: Config, skip: (file: string, reason: string) => void, prefix = ''): string[] {
   const files: string[] = [];
   for (const entry of fs.readdirSync(path.join(source, prefix), { withFileTypes: true })) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (pruned.has(entry.name) || config.exclude.some(pattern => path.posix.matchesGlob(relative, pattern))) continue;
+    if (pruned.has(entry.name)) continue;
+    const matches = config.copy.some(pattern => path.posix.matchesGlob(relative, pattern));
+    if (config.exclude.some(pattern => path.posix.matchesGlob(relative, pattern))) {
+      if (matches || entry.isDirectory()) skip(relative, 'excluded by configuration');
+      continue;
+    }
     if (entry.isDirectory()) {
       // Never cross into submodules, nested repositories, or nested worktrees.
-      if (!fs.existsSync(path.join(source, relative, '.git'))) files.push(...candidates(source, config, relative));
+      if (!fs.existsSync(path.join(source, relative, '.git'))) files.push(...candidates(source, config, skip, relative));
     }
-    else if (entry.isFile() && config.copy.some(pattern => path.posix.matchesGlob(relative, pattern))) files.push(relative);
+    else if (matches) {
+      if (entry.isFile()) files.push(relative);
+      else skip(relative, entry.isSymbolicLink() ? 'source is a symbolic link' : 'source is not a regular file');
+    }
   }
   return files;
 }
@@ -200,33 +215,70 @@ function safeParents(root: string, relative: string, dryRun: boolean): boolean {
   return true;
 }
 
-export function sync({ dryRun = false } = {}) {
+export function sync({ dryRun = false, verbose = false, all = false } = {}) {
   const ctx = context();
   const projectRoot = mainWorktree(ctx.root);
   const config = readConfig(projectRoot);
   const source = fs.realpathSync(config.source === 'main-worktree' ? projectRoot : path.resolve(projectRoot, config.source));
-  if (source === fs.realpathSync(ctx.root)) return { copied: 0, skipped: 0 };
   // Do not let a typo silently select an unrelated folder as a secrets source.
   if (git(['rev-parse', '--show-toplevel'], source).trimEnd() !== source || git(['rev-parse', '--path-format=absolute', '--git-common-dir'], source).trimEnd() !== ctx.common) {
     throw new Error('source must be a worktree of this repository.');
   }
-  const files = candidates(source, config);
-  const ignored = files.length ? new Set((git(['check-ignore', '--stdin', '-z'], source, { optional: true, input: `${files.join('\0')}\0` }) ?? '').split('\0').filter(Boolean)) : new Set();
+  if (!all && source === fs.realpathSync(ctx.root)) return { copied: 0, skipped: 0 };
+  const sourceSkipped: { file: string; reason: string }[] = [];
+  const files = candidates(source, config, (file, reason) => sourceSkipped.push({ file, reason }));
+  const ignored = files.length ? new Set((git(['check-ignore', '--stdin', '-z'], source, { optional: true, input: `${files.join('\0')}\0` }) ?? '').split('\0').filter(Boolean)) : new Set<string>();
+  const targets = all ? worktrees(ctx.root).filter(item => !item.bare).map(item => item.root) : [ctx.root];
+  const total = { copied: 0, skipped: 0 };
+  let failed = 0;
+  for (const target of targets) {
+    try {
+      // Missing registrations can remain after a worktree directory is removed.
+      if (!fs.existsSync(target)) {
+        console.log(`zeke: skipped worktree ${JSON.stringify(target)} (directory is missing).`);
+        continue;
+      }
+      if (fs.realpathSync(target) === source) continue;
+      if (all) console.log(`zeke: worktree ${JSON.stringify(target)}`);
+      if (all && (git(['rev-parse', '--show-toplevel'], target).trimEnd() !== fs.realpathSync(target) || git(['rev-parse', '--path-format=absolute', '--git-common-dir'], target).trimEnd() !== ctx.common)) {
+        throw new Error('destination must be a worktree of this repository.');
+      }
+      syncTarget(target, source, files, ignored, sourceSkipped, dryRun, verbose, total);
+    } catch (error) {
+      if (!all) throw error;
+      failed++;
+      console.error(`zeke: sync failed for worktree ${JSON.stringify(target)}: ${(error as Error).message}`);
+    }
+  }
+  if (all) console.log(`zeke: total: ${total.copied} ${dryRun ? 'to copy' : 'copied'}, ${total.skipped} skipped.`);
+  if (failed) throw new Error(`Sync failed in ${failed} worktree(s). Other worktrees were processed; run zeke sync --all to retry.`);
+  return total;
+}
+
+function syncTarget(target: string, source: string, files: string[], ignored: Set<string>, sourceSkipped: { file: string; reason: string }[], dryRun: boolean, verbose: boolean, total: { copied: number; skipped: number }) {
   let copied = 0;
   let skipped = 0;
+  const skip = (file: string, reason: string) => {
+    skipped++;
+    total.skipped++;
+    if (verbose) console.log(`zeke: skipped ${JSON.stringify(file)} (${reason})`);
+  };
+  for (const { file, reason } of sourceSkipped) skip(file, reason);
   for (const relative of files) {
-    if (!safeParents(ctx.root, relative, true)) { skipped++; continue; }
+    if (!safeParents(target, relative, true)) { skip(relative, 'destination parent is a symbolic link or not a directory'); continue; }
     // Check ignore rules in both worktrees: a branch may have changed .gitignore.
-    if (!ignored.has(relative) || git(['check-ignore', '-q', '--', relative], ctx.root, { optional: true }) === null) { skipped++; continue; }
-    const destination = path.join(ctx.root, relative);
-    try { fs.lstatSync(destination); skipped++; continue; }
+    if (!ignored.has(relative)) { skip(relative, 'tracked or not ignored in source'); continue; }
+    if (git(['check-ignore', '-q', '--', relative], target, { optional: true }) === null) { skip(relative, 'tracked or not ignored in destination'); continue; }
+    const destination = path.join(target, relative);
+    try { fs.lstatSync(destination); skip(relative, 'destination already exists'); continue; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    if (!safeParents(ctx.root, relative, dryRun)) { skipped++; continue; }
+    if (!safeParents(target, relative, dryRun)) { skip(relative, 'destination parent is a symbolic link or not a directory'); continue; }
     if (!dryRun) {
       try { fs.copyFileSync(path.join(source, relative), destination, fs.constants.COPYFILE_EXCL); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { skipped++; continue; } throw error; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { skip(relative, 'destination already exists'); continue; } throw error; }
     }
     copied++;
+    total.copied++;
     console.log(`zeke: ${dryRun ? 'would copy' : 'copied'} ${JSON.stringify(relative)}`);
   }
   console.log(`zeke: ${copied} ${dryRun ? 'to copy' : 'copied'}, ${skipped} skipped.`);
@@ -241,10 +293,10 @@ export function run(args: string[]): void {
     return;
   }
   if (!command || command === '--help' || command === '-h' || command === 'help') {
-    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [--dry-run] Copy missing ignored files into this worktree\n  status           Show installation, hook runtime, and source configuration\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git 2.36+. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
+    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [options]   Copy missing ignored files into this worktree\n    --all          Sync all worktrees from the configured source\n    --dry-run      Preview copies without writing files\n    --verbose      Show skipped paths and reasons\n  status           Show installation, hook runtime, and source configuration\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git 2.36+. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
     return;
   }
-  if (flags.some(flag => command !== 'sync' || flag !== '--dry-run')) throw new Error('Unknown option. Run zeke --help.');
+  if (flags.some(flag => command !== 'sync' || !['--dry-run', '--verbose', '--all'].includes(flag))) throw new Error('Unknown option. Run zeke --help.');
   switch (command) {
     case 'init': {
       const ctx = context();
@@ -255,7 +307,7 @@ export function run(args: string[]): void {
       break;
     }
     case 'install': install(); break;
-    case 'sync': sync({ dryRun: flags.includes('--dry-run') }); break;
+    case 'sync': sync({ dryRun: flags.includes('--dry-run'), verbose: flags.includes('--verbose'), all: flags.includes('--all') }); break;
     case 'uninstall': uninstall(); break;
     case 'status': {
       const ctx = context();
