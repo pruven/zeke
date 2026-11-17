@@ -69,12 +69,35 @@ Optionally run `zeke init` to create and commit `zeke.config.json` to share rule
 | `zeke init` | Create config if missing, enable hooks, and sync this worktree |
 | `zeke install` | Enable or refresh hooks and sync this worktree |
 | `zeke sync` | Copy missing files into the current worktree |
+| `zeke sync --verbose` | Show skipped paths and the reason for each skip |
+| `zeke sync --all` | Copy missing files into all worktrees from the configured source |
 | `zeke sync --dry-run` | Preview copies without writing files |
 | `zeke status` | Show hook installation, runtime, project root, and config |
 | `zeke uninstall` | Restore the previous hook configuration |
 | `zeke --version` | Print the installed version |
 
 Use `zeke sync` for existing worktrees or after `git worktree add --no-checkout` and a later checkout. Ordinary branch switches do not trigger copying.
+
+### Sync details and all worktrees
+
+Use `--verbose` to explain skipped paths, including existing destination files,
+excluded files, source symlinks, unsafe destination parents, and files tracked or
+not ignored by Git in either worktree. Dependency/build directories and nested
+repositories are not scanned. Output includes paths and reasons, never file contents.
+
+```sh
+zeke sync --verbose
+zeke sync --all --dry-run --verbose
+zeke sync --all
+```
+
+`--all` uses the same configured source and the main worktree's config for every
+destination, including the main worktree when another worktree is the source.
+It skips the source itself, bare repositories, and missing worktree directories.
+Each destination keeps its existing files and must ignore a file before receiving
+it. Output groups results by worktree and ends with a total. If one destination
+fails, Zeke continues with the others and exits with a nonzero status. Dry runs
+create neither files nor directories.
 
 ## Configuration
 

@@ -160,6 +160,120 @@ test('manual sync, dry run, and repeated calls preserve existing values', t => {
   assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'SECRET=target');
 });
 
+test('verbose sync explains excluded, existing, tracked and nonignored files without printing values', t => {
+  const f = fixture(t);
+  write(f.root, 'zeke.config.json', JSON.stringify({ copy: ['**/.env*', 'local.json'] }));
+  write(f.root, '.env', 'SECRET=source');
+  write(f.root, '.env.local', 'SECRET=local');
+  write(f.root, '.env.tracked', 'SECRET=tracked');
+  git(f.root, 'add', '-f', '.env.tracked');
+  git(f.root, 'commit', '-m', 'tracked env fixture');
+  write(f.root, 'local.json', 'SECRET=untracked');
+  const target = f.worktree();
+  write(target, '.env', 'SECRET=target');
+  write(target, '.gitignore', '.env\n.env.tracked\n');
+  const normal = zeke(target, 'sync');
+  assert.doesNotMatch(normal.stdout, /zeke: skipped /);
+  const result = zeke(target, 'sync', '--dry-run', '--verbose');
+  assert.match(result.stdout, /skipped "\.env" \(destination already exists\)/);
+  assert.match(result.stdout, /skipped "\.env.example" \(excluded by configuration\)/);
+  assert.match(result.stdout, /skipped "\.env.local" \(tracked or not ignored in destination\)/);
+  assert.match(result.stdout, /skipped "\.env.tracked" \(tracked or not ignored in source\)/);
+  assert.match(result.stdout, /skipped "local.json" \(tracked or not ignored in source\)/);
+  assert.doesNotMatch(result.stdout + result.stderr, /SECRET=/);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'SECRET=target');
+});
+
+test('verbose sync explains source symlinks and unsafe destination paths', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'SECRET=source');
+  write(f.root, 'apps/api/.env', 'SECRET=nested');
+  fs.symlinkSync(path.join(f.root, '.env'), path.join(f.root, '.env.link'));
+  const target = f.worktree();
+  fs.symlinkSync(f.temp, path.join(target, 'apps'));
+  fs.symlinkSync(path.join(f.temp, 'missing'), path.join(target, '.env'));
+  const result = zeke(target, 'sync', '--verbose');
+  assert.match(result.stdout, /skipped "\.env.link" \(source is a symbolic link\)/);
+  assert.match(result.stdout, /skipped "apps\/api\/\.env" \(destination parent is a symbolic link or not a directory\)/);
+  assert.match(result.stdout, /skipped "\.env" \(destination already exists\)/);
+  assert.equal(fs.existsSync(path.join(f.temp, 'api')), false);
+  assert.equal(fs.existsSync(path.join(f.temp, 'missing')), false);
+});
+
+test('sync --all previews and copies missing files while preserving each worktree ignore rules and values', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'SECRET=source');
+  write(f.root, 'apps/api/.env.local', 'SECRET=nested');
+  const first = f.worktree('first');
+  const second = f.worktree('second');
+  write(first, '.env', 'SECRET=first');
+  write(second, '.gitignore', '.env\n');
+  const preview = zeke(first, 'sync', '--all', '--dry-run', '--verbose');
+  for (const target of [first, second]) {
+    assert.ok(preview.stdout.includes(`worktree ${JSON.stringify(target)}`));
+    assert.equal(fs.existsSync(path.join(target, 'apps')), false);
+  }
+  assert.match(preview.stdout, /total: 2 to copy/);
+  assert.doesNotMatch(preview.stdout, /SECRET=/);
+  assert.equal(fs.existsSync(path.join(second, '.env')), false);
+  const result = zeke(first, 'sync', '--all');
+  assert.match(result.stdout, /total: 2 copied/);
+  assert.equal(fs.readFileSync(path.join(first, '.env'), 'utf8'), 'SECRET=first');
+  assert.equal(fs.readFileSync(path.join(first, 'apps/api/.env.local'), 'utf8'), 'SECRET=nested');
+  assert.equal(fs.readFileSync(path.join(second, '.env'), 'utf8'), 'SECRET=source');
+  assert.equal(fs.existsSync(path.join(second, 'apps')), false);
+  assert.match(zeke(f.root, 'sync', '--all').stdout, /total: 0 copied/);
+});
+
+test('sync --all uses the configured source and includes main and detached worktrees', t => {
+  const f = fixture(t);
+  const source = f.worktree('source');
+  write(source, '.env', 'SECRET=custom');
+  write(f.root, 'zeke.config.json', JSON.stringify({ source: '../source' }));
+  const detached = path.join(f.temp, 'detached');
+  git(f.root, 'worktree', 'add', '--detach', detached);
+  const result = zeke(source, 'sync', '--all');
+  assert.equal(fs.readFileSync(path.join(f.root, '.env'), 'utf8'), 'SECRET=custom');
+  assert.equal(fs.readFileSync(path.join(detached, '.env'), 'utf8'), 'SECRET=custom');
+  assert.ok(!result.stdout.includes(`worktree ${JSON.stringify(source)}`));
+  assert.match(result.stdout, /total: 2 copied/);
+});
+
+test('sync --all skips stale registrations and continues after a destination error', t => {
+  const f = fixture(t);
+  write(f.root, '.env', 'SECRET=source');
+  const missing = f.worktree('missing');
+  const replaced = f.worktree('replaced');
+  const healthy = f.worktree('healthy');
+  fs.rmSync(missing, { recursive: true });
+  fs.rmSync(replaced, { recursive: true });
+  fs.mkdirSync(replaced);
+  git(replaced, 'init');
+  write(replaced, '.gitignore', '.env\n');
+  const result = exec(f.root, process.execPath, [cli, 'sync', '--all'], false);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /skipped worktree .*missing.*directory is missing/);
+  assert.match(result.stderr, /destination must be a worktree of this repository/);
+  assert.match(result.stderr, /Sync failed in 1 worktree/);
+  assert.equal(fs.existsSync(path.join(replaced, '.env')), false);
+  assert.equal(fs.readFileSync(path.join(healthy, '.env'), 'utf8'), 'SECRET=source');
+});
+
+test('sync --all works with a bare repository and skips its bare entry', t => {
+  const f = fixture(t);
+  const bare = path.join(f.temp, 'bare.git');
+  git(f.root, 'clone', '--bare', f.root, bare);
+  const source = path.join(f.temp, 'bare-source');
+  const target = path.join(f.temp, 'bare-target');
+  git(bare, 'worktree', 'add', source, 'main');
+  git(bare, 'worktree', 'add', '-b', 'target', target);
+  write(source, '.env', 'SECRET=bare-source');
+  const result = zeke(target, 'sync', '--all');
+  assert.match(result.stdout, /total: 1 copied/);
+  assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'SECRET=bare-source');
+  assert.equal(fs.existsSync(path.join(bare, '.env')), false);
+});
+
 test('ordinary branch switches forward hooks without repopulating deleted env files', t => {
   const f = fixture(t);
   write(f.root, '.env', 'TOKEN=source');
