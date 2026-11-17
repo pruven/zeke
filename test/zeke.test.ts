@@ -833,3 +833,62 @@ for (const failure of ['write', 'permissions', 'baseline']) {
     assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'TOKEN=updated-secret');
   });
 }
+
+for (const change of ['replacement', 'symlink', 'edit', 'missing', 'stat failure', 'unlink failure']) {
+  test(`failed sync cleanup preserves ${change} and reports the original error`, t => {
+    const f = fixture(t);
+    write(f.root, '.env', 'TOKEN=source-secret', 0o600);
+    const target = f.worktree();
+    const moduleUrl = new URL('../lib/zeke.js', import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import path from 'node:path';
+      import { run } from ${JSON.stringify(moduleUrl)};
+      const change = ${JSON.stringify(change)};
+      const destination = path.join(process.cwd(), '.env');
+      const write = fs.writeFileSync;
+      const stat = fs.lstatSync;
+      const unlink = fs.unlinkSync;
+      let failed = false;
+      fs.writeFileSync = function(file, ...args) {
+        if (typeof file === 'string' && file.endsWith('.tmp')) {
+          failed = true;
+          if (change === 'replacement') {
+            const replacement = destination + '.replacement';
+            write(replacement, 'TOKEN=local-secret');
+            fs.renameSync(replacement, destination);
+          } else if (change === 'symlink') {
+            unlink(destination);
+            fs.symlinkSync(${JSON.stringify(path.join(f.root, '.env'))}, destination);
+          } else if (change === 'edit') {
+            write(destination, 'TOKEN=longer-local-secret');
+          } else if (change === 'missing') {
+            unlink(destination);
+          }
+          throw new Error('original baseline failure');
+        }
+        return write(file, ...args);
+      };
+      fs.lstatSync = function(file, ...args) {
+        if (failed && change === 'stat failure' && file === destination) throw new Error('cleanup stat failure');
+        return stat(file, ...args);
+      };
+      fs.unlinkSync = function(file, ...args) {
+        if (failed && change === 'unlink failure' && file === destination) throw new Error('cleanup unlink failure');
+        return unlink(file, ...args);
+      };
+      try { run(['sync']); }
+      catch (error) { console.error(error.message); process.exitCode = 1; }
+    `;
+    const result = exec(target, process.execPath, ['--input-type=module', '-e', script], false);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /original baseline failure/);
+    assert.doesNotMatch(result.stderr, /cleanup stat failure|cleanup unlink failure|ENOENT|local-secret|source-secret/);
+    const destination = path.join(target, '.env');
+    if (change === 'replacement') assert.equal(fs.readFileSync(destination, 'utf8'), 'TOKEN=local-secret');
+    else if (change === 'symlink') assert.equal(fs.lstatSync(destination).isSymbolicLink(), true);
+    else if (change === 'edit') assert.equal(fs.readFileSync(destination, 'utf8'), 'TOKEN=longer-local-secret');
+    else if (change === 'missing') assert.equal(fs.existsSync(destination), false);
+    else assert.equal(fs.readFileSync(destination, 'utf8'), 'TOKEN=source-secret');
+  });
+}

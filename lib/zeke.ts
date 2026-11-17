@@ -291,18 +291,30 @@ function syncTarget(ctx: Context, target: string, source: string, files: string[
       let fd: number;
       try { fd = fs.openSync(destination, 'wx', sourceMode); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { skip(relative, 'destination already exists'); continue; } throw error; }
+      let copy: fs.Stats | undefined;
       try {
-        let mode: number;
         try {
           fs.writeFileSync(fd, contents);
           fs.fchmodSync(fd, sourceMode);
-          mode = fs.fstatSync(fd).mode & 0o777;
-        } finally { fs.closeSync(fd); }
-        saveBaseline(ctx, target, relative, contents, mode);
+        } finally {
+          // Snapshot the open file, even after a partial write. If it cannot be
+          // identified, leave the path alone rather than guessing during cleanup.
+          try { copy = fs.fstatSync(fd); } catch { /* cleanup must be conservative */ }
+          fs.closeSync(fd);
+        }
+        if (!copy) throw new Error('Cannot verify the copied file.');
+        saveBaseline(ctx, target, relative, contents, copy.mode & 0o777);
       } catch (error) {
-        // Exclusive creation succeeded, but the copy is not complete and tracked.
-        // Remove it so a later sync can retry instead of skipping a partial file.
-        fs.unlinkSync(destination);
+        try {
+          if (copy && safeParents(target, relative, true)) {
+            const current = fs.lstatSync(destination);
+            if (current.isFile() && current.dev === copy.dev && current.ino === copy.ino &&
+                current.size === copy.size && current.mode === copy.mode &&
+                current.mtimeMs === copy.mtimeMs && current.ctimeMs === copy.ctimeMs) {
+              fs.unlinkSync(destination);
+            }
+          }
+        } catch { /* preserve the original copy error if cleanup fails */ }
         throw error;
       }
     }
