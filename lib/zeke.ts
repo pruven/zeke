@@ -285,11 +285,13 @@ function syncTarget(ctx: Context, target: string, source: string, files: string[
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (!safeParents(target, relative, dryRun)) { skip(relative, 'destination parent is a symbolic link or not a directory'); continue; }
     if (!dryRun) {
+      const original = path.join(source, relative);
+      const contents = fs.readFileSync(original);
+      const sourceMode = fs.statSync(original).mode & 0o777;
+      let fd: number;
+      try { fd = fs.openSync(destination, 'wx', sourceMode); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { skip(relative, 'destination already exists'); continue; } throw error; }
       try {
-        const original = path.join(source, relative);
-        const contents = fs.readFileSync(original);
-        const sourceMode = fs.statSync(original).mode & 0o777;
-        const fd = fs.openSync(destination, 'wx', sourceMode);
         let mode: number;
         try {
           fs.writeFileSync(fd, contents);
@@ -297,8 +299,12 @@ function syncTarget(ctx: Context, target: string, source: string, files: string[
           mode = fs.fstatSync(fd).mode & 0o777;
         } finally { fs.closeSync(fd); }
         saveBaseline(ctx, target, relative, contents, mode);
+      } catch (error) {
+        // Exclusive creation succeeded, but the copy is not complete and tracked.
+        // Remove it so a later sync can retry instead of skipping a partial file.
+        fs.unlinkSync(destination);
+        throw error;
       }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') { skip(relative, 'destination already exists'); continue; } throw error; }
     }
     copied++;
     total.copied++;
