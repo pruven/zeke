@@ -73,6 +73,8 @@ Optionally run `zeke init` to create and commit `zeke.config.json` to share rule
 | `zeke sync --all` | Copy missing files into all worktrees from the configured source |
 | `zeke sync --dry-run` | Preview copies without writing files |
 | `zeke status` | Show hook installation, runtime, project root, and config |
+| `zeke doctor` | Diagnose setup problems and print specific repair instructions |
+| `zeke diff` | Report missing files, differing files, and missing environment variable names |
 | `zeke uninstall` | Restore the previous hook configuration |
 | `zeke --version` | Print the installed version |
 
@@ -98,6 +100,21 @@ Each destination keeps its existing files and must ignore a file before receivin
 it. Output groups results by worktree and ends with a total. If one destination
 fails, Zeke continues with the others and exits with a nonzero status. Dry runs
 create neither files nor directories.
+
+## Diagnose setup and environment drift
+
+Run `zeke doctor` inside a worktree to check installation state, the saved Node/Bun executable, installed runtime files, generated hook dispatchers, effective `core.hooksPath`, the main worktree's config, and source availability. It reports hook-manager conflicts and worktree or command-scoped overrides, with repair instructions for each problem. It checks the current worktree's effective hook settings; run it in another worktree to diagnose that worktree's overrides. It never changes hooks, config, or environment files. A healthy installation exits 0; detected problems exit 1.
+
+```sh
+zeke doctor
+zeke diff
+```
+
+`zeke diff` compares the current worktree with the configured source, using the main worktree's config and the same file selection and Git ignore rules as sync. It reports missing destination files and byte differences in existing files. For differing `.env` and `.env.*` files, it also lists variable names present in the source but missing from the destination. Empty assignments count as present; quoted multiline values and `export` assignments are supported. Only standard variable names (`A–Z`, `a–z`, digits, and underscores, starting with a letter or underscore) are listed. Custom files such as JSON are compared as bytes. It prints no values, contents, or content hashes.
+
+Diff never writes files or directories. It excludes tracked and nonignored files, configured exclusions, dependencies, and nested repositories. Symlinks and unsafe destination parents are skipped with reasons. Missing variable names are listed only for existing files; missing files are reported once by path. Extra destination files and extra variable names are not drift. Running in the source itself reports no drift.
+
+The summary counts missing files, differing files, missing variable names, and skipped paths. Diff exits 0 when the comparison is complete with no drift, and 1 for drift, skipped paths, or errors. Use `zeke sync` to copy missing files; review existing differing files locally, since sync preserves their values. Run `zeke doctor` for setup errors. Both commands also work with your usual `npx zeke` or `bun --bun zeke` prefix.
 
 ## Configuration
 

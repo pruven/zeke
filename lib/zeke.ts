@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { parseEnv } from 'node:util';
 
 export interface Config {
   source: string;
@@ -108,7 +109,7 @@ function readConfig(projectRoot: string): Config {
   try { user = JSON.parse(fs.readFileSync(path.join(projectRoot, CONFIG), 'utf8')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`Cannot read ${CONFIG}: ${(error as Error).message}`); }
   if (!user || Array.isArray(user) || typeof user !== 'object') throw new Error(`${CONFIG} must contain an object.`);
-  for (const key of Object.keys(user)) if (!(key in defaults)) throw new Error(`Unknown configuration key: ${key}`);
+  for (const key of Object.keys(user)) if (!Object.hasOwn(defaults, key)) throw new Error(`Unknown configuration key: ${key}`);
   const config = { ...defaults, ...user } as Config;
   if (typeof config.source !== 'string' || !config.source) throw new Error('source must be a nonempty path or "main-worktree".');
   for (const key of ['copy', 'exclude'] as const) {
@@ -129,6 +130,8 @@ function effectiveHooks(root: string): string | null {
 }
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+const hookScript = (executable: string, runtime: string, hook: string) =>
+  `#!/bin/sh\nexec ${quote(executable)} ${quote(path.join(runtime, 'hook.js'))} ${quote(hook)} "$@"\n`;
 const runtimeInfo = (): RuntimeInfo => ({
   name: process.versions.bun ? 'bun' : 'node',
   version: process.versions.bun ?? process.versions.node,
@@ -161,7 +164,10 @@ export function install() {
   fs.writeFileSync(path.join(runtime, 'package.json'), '{"type":"module"}\n');
   fs.writeFileSync(path.join(ctx.directory, 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   for (const hook of hookNames) {
-    fs.writeFileSync(path.join(ctx.hooks, hook), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(path.join(runtime, 'hook.js'))} ${quote(hook)} "$@"\n`, { mode: 0o755 });
+    const file = path.join(ctx.hooks, hook);
+    fs.writeFileSync(file, hookScript(process.execPath, runtime, hook), { mode: 0o755 });
+    // writeFile's mode only applies to new files; refresh damaged permissions too.
+    fs.chmodSync(file, 0o755);
   }
   git(['config', '--local', '--replace-all', 'core.hooksPath', ctx.hooks], ctx.root);
   console.log('zeke: enabled. New worktrees will receive missing local environment files.');
@@ -215,15 +221,19 @@ function safeParents(root: string, relative: string, dryRun: boolean): boolean {
   return true;
 }
 
+function sourceAt(ctx: Context, projectRoot: string, config: Config): string {
+  const source = fs.realpathSync(config.source === 'main-worktree' ? projectRoot : path.resolve(projectRoot, config.source));
+  if (git(['rev-parse', '--show-toplevel'], source).trimEnd() !== source || git(['rev-parse', '--path-format=absolute', '--git-common-dir'], source).trimEnd() !== ctx.common) {
+    throw new Error('source must be a worktree of this repository.');
+  }
+  return source;
+}
+
 export function sync({ dryRun = false, verbose = false, all = false } = {}) {
   const ctx = context();
   const projectRoot = mainWorktree(ctx.root);
   const config = readConfig(projectRoot);
-  const source = fs.realpathSync(config.source === 'main-worktree' ? projectRoot : path.resolve(projectRoot, config.source));
-  // Do not let a typo silently select an unrelated folder as a secrets source.
-  if (git(['rev-parse', '--show-toplevel'], source).trimEnd() !== source || git(['rev-parse', '--path-format=absolute', '--git-common-dir'], source).trimEnd() !== ctx.common) {
-    throw new Error('source must be a worktree of this repository.');
-  }
+  const source = sourceAt(ctx, projectRoot, config);
   if (!all && source === fs.realpathSync(ctx.root)) return { copied: 0, skipped: 0 };
   const sourceSkipped: { file: string; reason: string }[] = [];
   const files = candidates(source, config, (file, reason) => sourceSkipped.push({ file, reason }));
@@ -285,6 +295,143 @@ function syncTarget(target: string, source: string, files: string[], ignored: Se
   return { copied, skipped };
 }
 
+// Diagnostics deliberately avoid echoing parser errors or file contents: a
+// malformed config or dotenv file can contain credentials even in an error.
+export function doctor(): number {
+  const ctx = context();
+  let problems = 0;
+  const issue = (message: string, repair: string) => {
+    problems++;
+    console.log(`zeke: problem: ${message}\n  Repair: ${repair}`);
+  };
+  const reinstall = 'Run zeke install with your chosen Node or Bun runtime to refresh hooks and runtime paths.';
+  let state: InstallationState | null = null;
+  let invalidState = false;
+  try {
+    state = stateAt(ctx);
+    if (state && (state.version !== 1 || typeof state.projectRoot !== 'string' || typeof state.common !== 'string' ||
+      !Array.isArray(state.previousLocal) || state.previousLocal.some(value => typeof value !== 'string') ||
+      !(state.previousEffective === null || typeof state.previousEffective === 'string'))) throw new Error();
+  } catch {
+    invalidState = true;
+    state = null;
+    issue('Installation state is invalid or unreadable.', `Recover ${JSON.stringify(path.join(ctx.directory, 'state.json'))} from a backup before reinstalling; it records the previous hook configuration.`);
+  }
+  const effective = effectiveHooks(ctx.root);
+  const scope = git(['config', '--show-scope', '--get', 'core.hooksPath'], ctx.root, { optional: true });
+  if (scope && /^(worktree|command)\s/.test(scope)) {
+    issue('A worktree or command-scoped core.hooksPath overrides shared repository hooks.',
+      scope.startsWith('worktree') ? 'Run git config --worktree --unset-all core.hooksPath, then run zeke doctor again.' : 'Remove the git -c core.hooksPath override or GIT_CONFIG_COUNT hook override, then run zeke doctor again.');
+  }
+  if (state && effective !== ctx.hooks) {
+    issue('core.hooksPath changed after installation; another hook manager may have replaced Zeke.',
+      `Finish setup of the other hook manager first. To restore the saved chain, run git config --local core.hooksPath ${quote(ctx.hooks)}, then zeke uninstall, then zeke install. If adopting a new hook manager, preserve state.json and explicitly set its intended hooks path after uninstalling, before reinstalling Zeke.`);
+  } else if (!state && !invalidState) {
+    issue(effective === ctx.hooks ? 'Zeke hooks are configured but installation state is missing.' : 'Zeke hooks are not installed.',
+      effective === ctx.hooks ? 'Restore state.json from a backup, or explicitly restore your previous core.hooksPath before running zeke install.' : 'Run zeke install after any other hook managers finish setup.');
+  }
+  if (state) {
+    if (state.common !== ctx.common || state.projectRoot !== mainWorktree(ctx.root)) {
+      issue('Saved repository paths no longer match this checkout; the repository may have moved.',
+        `Run git config --local core.hooksPath ${quote(ctx.hooks)}, then zeke uninstall and zeke install from the new location.`);
+    }
+    try {
+      if (!state.runtime || !['node', 'bun'].includes(state.runtime.name) || !path.isAbsolute(state.runtime.executable)) throw new Error();
+      fs.accessSync(state.runtime.executable, fs.constants.X_OK);
+      if (!fs.statSync(state.runtime.executable).isFile()) throw new Error();
+    } catch { issue('The recorded Node/Bun executable is missing, invalid, or not executable.', reinstall); }
+    for (const file of ['zeke.js', 'hook.js', 'package.json']) {
+      try {
+        const contents = fs.readFileSync(path.join(ctx.directory, 'runtime', file), 'utf8');
+        if (!contents.trim() || (file === 'package.json' && JSON.parse(contents).type !== 'module')) throw new Error();
+      } catch { issue(`Installed runtime file ${JSON.stringify(file)} is missing, unreadable, or invalid.`, reinstall); }
+    }
+    const broken = hookNames.filter(hook => {
+      try {
+        const file = path.join(ctx.hooks, hook);
+        fs.accessSync(file, fs.constants.X_OK);
+        const expected = hookScript(state!.runtime!.executable, path.join(ctx.directory, 'runtime'), hook);
+        return fs.readFileSync(file, 'utf8') !== expected;
+      } catch { return true; }
+    });
+    if (broken.length) issue(`Hook dispatchers are missing, modified, or not executable: ${broken.join(', ')}.`, reinstall);
+  }
+  let projectRoot: string | undefined;
+  let config: Config | undefined;
+  try {
+    projectRoot = mainWorktree(ctx.root);
+    config = readConfig(projectRoot);
+  } catch {
+    issue('The main worktree or its zeke.config.json is unavailable or invalid.',
+      'Restore the main worktree and edit its zeke.config.json: use only source, copy, and exclude; source must be a nonempty string and patterns must be relative forward-slash globs without .. segments. Missing config uses defaults.');
+  }
+  if (projectRoot && config) {
+    try { sourceAt(ctx, projectRoot, config); }
+    catch { issue('The configured source is missing, unreadable, or not a worktree of this repository.',
+      'Restore the source directory, or set source in the main worktree’s zeke.config.json to "main-worktree" or the root of an existing worktree listed by git worktree list.'); }
+  }
+  console.log(`zeke: doctor: ${problems ? `${problems} problem(s) found.` : 'all checks passed.'}`);
+  return problems;
+}
+
+export function diff(): number {
+  const ctx = context();
+  const projectRoot = mainWorktree(ctx.root);
+  let config: Config;
+  try { config = readConfig(projectRoot); }
+  catch { throw new Error('Invalid or unreadable zeke.config.json. Run zeke doctor for repair instructions.'); }
+  let source: string;
+  try { source = sourceAt(ctx, projectRoot, config); }
+  catch { throw new Error('Source is unavailable or is not a worktree of this repository. Run zeke doctor for repair instructions.'); }
+  let missing = 0;
+  let differing = 0;
+  let variables = 0;
+  let skipped = 0;
+  const skip = (file: string, reason: string) => {
+    skipped++;
+    console.log(`zeke: skipped ${JSON.stringify(file)} (${reason})`);
+  };
+  if (source !== fs.realpathSync(ctx.root)) {
+    const files = candidates(source, config, (file, reason) => {
+      if (reason !== 'excluded by configuration') skip(file, reason);
+    });
+    for (const relative of files.sort()) {
+      if (!safeParents(ctx.root, relative, true)) { skip(relative, 'destination parent is a symbolic link or not a directory'); continue; }
+      if (git(['check-ignore', '-q', '--', relative], source, { optional: true }) === null ||
+          git(['check-ignore', '-q', '--', relative], ctx.root, { optional: true }) === null) {
+        skip(relative, 'tracked or not ignored in source or destination'); continue;
+      }
+      const destination = path.join(ctx.root, relative);
+      try {
+        if (!fs.lstatSync(destination).isFile()) { skip(relative, 'destination is not a regular file'); continue; }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        missing++;
+        console.log(`zeke: missing file ${JSON.stringify(relative)}`);
+        continue;
+      }
+      const original = fs.readFileSync(path.join(source, relative));
+      const current = fs.readFileSync(destination);
+      if (original.equals(current)) continue;
+      differing++;
+      console.log(`zeke: differing file ${JSON.stringify(relative)}`);
+      if (/^\.env(?:\.|$)/.test(path.basename(relative))) {
+        const expected = parseEnv(original.toString('utf8'));
+        const actual = parseEnv(current.toString('utf8'));
+        for (const key of Object.keys(expected).sort()) {
+          // Only names are reported. No dotenv contents or parser errors escape.
+          if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && !Object.hasOwn(actual, key)) {
+            variables++;
+            console.log(`zeke: missing variable ${JSON.stringify(key)} in ${JSON.stringify(relative)}`);
+          }
+        }
+      }
+    }
+  }
+  console.log(`zeke: diff: ${missing} missing file(s), ${differing} differing file(s), ${variables} missing variable(s), ${skipped} skipped.`);
+  return missing + differing + skipped;
+}
+
 export function run(args: string[]): void {
   const [command, ...flags] = args;
   if (command === '--version' || command === '-v') {
@@ -293,7 +440,7 @@ export function run(args: string[]): void {
     return;
   }
   if (!command || command === '--help' || command === '-h' || command === 'help') {
-    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [options]   Copy missing ignored files into this worktree\n    --all          Sync all worktrees from the configured source\n    --dry-run      Preview copies without writing files\n    --verbose      Show skipped paths and reasons\n  status           Show installation, hook runtime, and source configuration\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git 2.36+. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
+    console.log(`zeke — environment files for Git worktrees\n\nUsage: zeke <command>\n\n  init             Create zeke.config.json, enable hooks, and sync\n  install          Enable or refresh hooks and sync this worktree\n  sync [options]   Copy missing ignored files into this worktree\n    --all          Sync all worktrees from the configured source\n    --dry-run      Preview copies without writing files\n    --verbose      Show skipped paths and reasons\n  status           Show installation, hook runtime, and source configuration\n  doctor           Diagnose setup problems and show repair instructions\n  diff             Report drift from source without displaying values\n  uninstall        Restore previous Git hooks configuration\n  --version, -v    Print the installed package version\n\nRequires Node.js >=22.20 or Bun >=1.4.4, plus Git 2.36+. Run inside a Git worktree.\nFor Bun: bun /path/to/dist/bin/zeke.js install (or bun --bun zeke install with a local package).`);
     return;
   }
   if (flags.some(flag => command !== 'sync' || !['--dry-run', '--verbose', '--all'].includes(flag))) throw new Error('Unknown option. Run zeke --help.');
@@ -308,6 +455,8 @@ export function run(args: string[]): void {
     }
     case 'install': install(); break;
     case 'sync': sync({ dryRun: flags.includes('--dry-run'), verbose: flags.includes('--verbose'), all: flags.includes('--all') }); break;
+    case 'doctor': if (doctor()) process.exitCode = 1; break;
+    case 'diff': if (diff()) process.exitCode = 1; break;
     case 'uninstall': uninstall(); break;
     case 'status': {
       const ctx = context();
